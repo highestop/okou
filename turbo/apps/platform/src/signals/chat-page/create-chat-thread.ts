@@ -221,6 +221,7 @@ import {
   textToMessageDocument,
 } from "../okou-page/user-message-document-codec.ts";
 import { locale$ } from "../locale.ts";
+import { pageSignal$ } from "../page-signal.ts";
 import {
   createComposerSignals,
   type ComposerSignals,
@@ -230,11 +231,12 @@ import { createChatThreadFeedbackSignals } from "./chat-thread-feedback.ts";
 import { createChatThreadSharingSignals } from "./chat-thread-sharing.ts";
 import { createChatThreadPinSignals } from "./chat-thread-pin.ts";
 import { createChatConversationLocatorSignals } from "./chat-conversation-locator.ts";
-import type {
-  ChatEventSignals,
-  SendChatEventInput,
-  SendChatEventResult,
-  SendInputChatEvent,
+import {
+  createChatEventSignals,
+  type ChatEventSignals,
+  type SendChatEventInput,
+  type SendChatEventResult,
+  type SendInputChatEvent,
 } from "./chat-event-signals.ts";
 import {
   registerChatEventChangeHandler$,
@@ -251,6 +253,7 @@ import {
 } from "../okou-page/connectors.ts";
 
 const L = logger("ChatThread");
+
 const noOpComposerDraftAction$ = command(
   (_context, signal: AbortSignal): Promise<void> => {
     signal.throwIfAborted();
@@ -2147,7 +2150,7 @@ function createPagedEventResources(
     readonly browserLifecycleOptimisticEvents: BrowserLifecycleOptimisticEvents;
     readonly connector: ComposerConnectorSignals;
   },
-  ownerSignal: AbortSignal,
+  owner: Computed<AbortSignal>,
 ) {
   const { threadId } = chatActionContext;
   const mailDraftCardSignals = createMailDraftCardSignalsRegistry(threadId);
@@ -2167,7 +2170,7 @@ function createPagedEventResources(
   const computerUseAuthorizationCardSignals =
     createComputerUseAuthorizationCardSignalsRegistry();
   const planUpgradeCardSignals = createPlanUpgradeCardSignalsRegistry();
-  const mermaidDiagrams = createMermaidDiagramRegistry(ownerSignal);
+  const mermaidDiagrams = createMermaidDiagramRegistry(owner);
   const imageLoads = createImageLoadRegistry();
 
   const registerChatEvent$ = command(
@@ -2325,29 +2328,26 @@ function createMarkThreadReadIfNeeded({
   });
 }
 
-function createEventChangeEffects(
-  {
-    threadId,
-    chatEvents,
-    projections,
-    scroll,
-    syncVisibleEventTrees$,
-  }: {
-    readonly threadId: string;
-    readonly chatEvents: ChatEventSignals;
-    readonly projections: Pick<
-      ReturnType<typeof createPagedEventProjections>,
-      "rawEvents$" | "latestRunFinishCreatedAt$"
-    >;
-    readonly scroll: ChatThreadScrollSignals;
-    readonly syncVisibleEventTrees$: Command<
-      Promise<void>,
-      [boolean, AbortSignal]
-    >;
-  },
-  ownerSignal: AbortSignal,
-) {
-  const sidebar = createThreadSidebarSignals(threadId, ownerSignal);
+function createEventChangeEffects({
+  threadId,
+  chatEvents,
+  projections,
+  scroll,
+  syncVisibleEventTrees$,
+}: {
+  readonly threadId: string;
+  readonly chatEvents: ChatEventSignals;
+  readonly projections: Pick<
+    ReturnType<typeof createPagedEventProjections>,
+    "rawEvents$" | "latestRunFinishCreatedAt$"
+  >;
+  readonly scroll: ChatThreadScrollSignals;
+  readonly syncVisibleEventTrees$: Command<
+    Promise<void>,
+    [boolean, AbortSignal]
+  >;
+}) {
+  const sidebar = createThreadSidebarSignals(threadId);
   const locallyMarkedReadAt$ = state<string | undefined>(undefined);
   const markThreadReadIfNeeded$ = createMarkThreadReadIfNeeded({
     threadId,
@@ -2378,7 +2378,7 @@ function createEventChangeEffects(
       if (!set(sidebar.claimAutoOpenCandidate$, candidateKey)) {
         return;
       }
-      set(sidebar.open$, { type: "browser" });
+      set(sidebar.open$, { type: "browser" }, signal);
     },
   );
   const updateEventPresentation$ = command(
@@ -2545,7 +2545,7 @@ function createChatThreadMessagePipeline(
     previewImageUrlsByUrl$,
     connector,
   }: ChatThreadMessagePipelineOptions,
-  ownerSignal: AbortSignal,
+  owner: Computed<AbortSignal>,
 ) {
   const { threadId } = chatActionContext;
   const browserLifecycleOptimisticEvents =
@@ -2560,7 +2560,7 @@ function createChatThreadMessagePipeline(
       browserLifecycleOptimisticEvents,
       connector,
     },
-    ownerSignal,
+    owner,
   );
   const projections = createPagedEventProjections({
     chatEvents$: chatEvents.chatEvents$,
@@ -2608,16 +2608,13 @@ function createChatThreadMessagePipeline(
     chatEvents.chatEvents$,
     initialEventsReadyView$,
   );
-  const effects = createEventChangeEffects(
-    {
-      threadId,
-      chatEvents,
-      projections,
-      scroll,
-      syncVisibleEventTrees$,
-    },
-    ownerSignal,
-  );
+  const effects = createEventChangeEffects({
+    threadId,
+    chatEvents,
+    projections,
+    scroll,
+    syncVisibleEventTrees$,
+  });
   const lifecycle = createChatEventPresentationLifecycle({
     chatEvents,
     eventChangeHandler: effects.eventChangeHandler,
@@ -2670,17 +2667,17 @@ function createChatThreadMessagePipeline(
 const draftCache$ = state(new Map<string, DraftSignals>());
 
 export const ensureDraft$ = command(
-  ({ get, set }, threadId: string): { draft: DraftSignals; isNew: boolean } => {
+  ({ get, set }, threadId: string): DraftSignals => {
     const cache = get(draftCache$);
     const existing = cache.get(threadId);
     if (existing) {
-      return { draft: existing, isNew: false };
+      return existing;
     }
     const draft = createDraftSignals();
     const next = new Map(cache);
     next.set(threadId, draft);
     set(draftCache$, next);
-    return { draft, isNew: true };
+    return draft;
   },
 );
 
@@ -3103,7 +3100,9 @@ function createRunTracking({
               cancellationRecovery.reload$,
               reloadConnectorAccountPreference$,
             ],
-            automations: [automationSignals.headerAutomations.reload$],
+            automations: [
+              automationSignals.headerAutomations.reloadAutomations$,
+            ],
             artifacts: [reloadArtifacts$],
           },
           handlers: {
@@ -3977,13 +3976,16 @@ export function createThreadComposerSignals(
   );
 }
 
-function createChatPanelSignalsWithDraft(
-  chatEvents: ChatEventSignals,
+/**
+ * Creates the complete signal graph of one chat panel. The graph carries no
+ * AbortSignal, so a pane can derive it from the thread it shows.
+ */
+export function createChatPanelSignals(
+  threadId: string,
   agentId: string,
   draft: DraftSignals,
-  signal: AbortSignal,
 ): ChatPanelSignals {
-  const threadId = chatEvents.threadId;
+  const chatEvents = createChatEventSignals(threadId);
   const artifact = createArtifacts(threadId);
   const threadDraft$ = createRemoteChatThreadDraft(threadId);
   const threadMeta$ = createThreadMeta(threadId);
@@ -4016,7 +4018,8 @@ function createChatPanelSignalsWithDraft(
       ),
       connector: composer.connector,
     },
-    signal,
+    // Panel resources live as long as the page setup that published the panel.
+    pageSignal$,
   );
   const messages: MessageListSignals = {
     ...messagePipeline,
@@ -4053,7 +4056,6 @@ function createChatPanelSignalsWithDraft(
   return {
     threadId,
     agentId,
-    signal,
     threadDraft$,
     threadMeta$,
     ...threadTitle,
@@ -4087,23 +4089,3 @@ function createChatPanelSignalsWithDraft(
     reloadArtifacts$: messages.reloadArtifacts$,
   };
 }
-
-export const createCachedChatPanelSignals$ = command(
-  (
-    { set },
-    chatEvents: ChatEventSignals,
-    agentId: string,
-    signal: AbortSignal,
-  ) => {
-    const { draft, isNew } = set(ensureDraft$, chatEvents.threadId);
-    return {
-      thread: createChatPanelSignalsWithDraft(
-        chatEvents,
-        agentId,
-        draft,
-        signal,
-      ),
-      isNew,
-    };
-  },
-);
