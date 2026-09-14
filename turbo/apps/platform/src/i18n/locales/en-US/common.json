@@ -3130,9 +3130,11 @@
       "scope": {
         "aria": "Connector scope",
         "attention": "Needs attention",
+        "connected": "Connected",
+        "custom": "Custom",
         "discover": "Discover",
-        "mine": "Your connectors",
-        "searchMine": "Find your connectors"
+        "searchConnected": "Find connected connectors",
+        "searchCustom": "Find custom connectors"
       },
       "search": "Find connectors",
       "shelf": {
