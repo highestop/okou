@@ -51,7 +51,6 @@ export enum FeatureSwitchKey {
   ComputerUseDesktopPlugins = "computerUseDesktopPlugins",
   ReferenceImages = "referenceImages",
   PrivateArtifacts = "privateArtifacts",
-  AgentMessageMath = "agentMessageMath",
   ProgressiveArtifactPreview = "progressiveArtifactPreview",
   ChatThinkingSpinner = "chatThinkingSpinner",
   SidebarSubscriptionUsage = "_sidebarSubscriptionUsage",
