@@ -213,6 +213,12 @@ import { generatePresignedGetUrl } from "../external/s3";
 import { getDatasetName, ingestToAxiom } from "../external/axiom";
 import { now, nowDate } from "../../lib/time";
 import { piModelConfigObservation } from "../../lib/pi-model-config-observation";
+import {
+  isPiLangfuseDebugRunEnvironment,
+  piLangfuseDebugPlatformEnvironment,
+  piLangfuseDebugSecretEnvironment,
+  resolvePiLangfuseDebugConfig,
+} from "../../lib/pi-langfuse-debug";
 import { generateOkouToken } from "../auth/tokens";
 import { joinAll, onRejection, safeSync, settle, tapError } from "../utils";
 import {
@@ -6339,6 +6345,7 @@ interface LaunchRunRowsArgs {
   readonly apiStartTime: number;
   readonly runnerGroup: string | undefined;
   readonly launchSnapshot: AgentRunLaunchSnapshot;
+  readonly langfuseTraceEnabled: boolean;
   readonly officialWorkflowProvenance:
     | AgentRunOfficialWorkflowProvenance
     | undefined;
@@ -6390,6 +6397,7 @@ function launchRunValues(
     lastHeartbeatAt: createdAt,
     runnerGroup: args.runnerGroup ?? null,
     launchSnapshot: args.launchSnapshot,
+    langfuseTraceEnabled: args.langfuseTraceEnabled,
     officialWorkflowProvenance: args.officialWorkflowProvenance ?? null,
     completedAt: args.status === "failed" ? createdAt : null,
     error: args.error ?? null,
@@ -6596,6 +6604,31 @@ function assertNativeEnvironment(
   }
 }
 
+function piLangfuseExecutionEnvironment(args: {
+  readonly featureSwitchContext: FeatureSwitchContext;
+  readonly includeOkouTokenSecret: boolean | undefined;
+  readonly piSandbox: PiModelConfig | undefined;
+  readonly userId: string;
+}): {
+  readonly platformEnvironment?: Readonly<Record<string, string>>;
+  readonly secrets?: Readonly<Record<string, string>>;
+} {
+  if (!args.includeOkouTokenSecret || args.piSandbox === undefined) {
+    return {};
+  }
+  const config = resolvePiLangfuseDebugConfig(args.featureSwitchContext);
+  if (!config) {
+    return {};
+  }
+  return {
+    platformEnvironment: piLangfuseDebugPlatformEnvironment({
+      config,
+      userId: args.userId,
+    }),
+    secrets: piLangfuseDebugSecretEnvironment(config),
+  };
+}
+
 async function buildStoredExecutionContextDraft(args: {
   readonly runId: string;
   readonly userId: string;
@@ -6604,6 +6637,7 @@ async function buildStoredExecutionContextDraft(args: {
   readonly resolved: ResolvedRunExecution;
   readonly body: CreateRunBody;
   readonly framework: SupportedFramework;
+  readonly piSandbox: PiModelConfig | undefined;
   readonly modelProvider: ResolvedModelProviderEnvironment | null;
   readonly connectorContext: ConnectorRuntimeContext;
   readonly customConnectorContext: CustomConnectorRuntimeContext;
@@ -6618,6 +6652,7 @@ async function buildStoredExecutionContextDraft(args: {
   readonly includeOkouTokenSecret: boolean | undefined;
 }): Promise<BuiltStoredExecutionContextDraft> {
   const permissions = args.permissionManifest;
+  const langfuseEnvironment = piLangfuseExecutionEnvironment(args);
   assertNativeCredentialOverrides(args.modelProvider, args.body.secrets);
   const executionSecrets = buildStoredExecutionSecrets({
     connectorContext: args.connectorContext,
@@ -6652,7 +6687,11 @@ async function buildStoredExecutionContextDraft(args: {
     capturedPiExecutionRoute(args.modelProvider),
   );
   const platformEnvironment = buildStoredPlatformEnvironment({
-    platformEnvironment: { ...args.platformEnvironment, ...nativeEnvironment },
+    platformEnvironment: {
+      ...args.platformEnvironment,
+      ...nativeEnvironment,
+      ...langfuseEnvironment.platformEnvironment,
+    },
     canonicalOkouRuntime: args.includeOkouTokenSecret === true,
   });
   const untrustedEnvironment = buildStoredUntrustedEnvironment({
@@ -6688,7 +6727,8 @@ async function buildStoredExecutionContextDraft(args: {
       vars: args.connectorContext.vars ?? null,
       resumeSession: args.resolved.resumeSession ?? null,
       encryptedSecrets: await encryptPersistentSecretsMap(
-        executionSecrets.secrets ?? null,
+        mergeRecords(executionSecrets.secrets, langfuseEnvironment.secrets) ??
+          null,
         args.featureSwitchContext,
       ),
       secretConnectorMap: executionSecrets.secretConnectorMap,
@@ -7754,6 +7794,9 @@ function preparedLaunchRowsArgs(args: {
     apiStartTime: args.commit.createArgs.apiStartTime,
     runnerGroup: args.runnerGroup,
     launchSnapshot: args.commit.context.launchSnapshot,
+    langfuseTraceEnabled: isPiLangfuseDebugRunEnvironment(
+      args.commit.launch.runnerJobPayload.executionContext.platformEnvironment,
+    ),
     officialWorkflowProvenance:
       args.commit.context.officialWorkflowRun?.provenance,
     error: undefined,
@@ -8254,6 +8297,7 @@ async function persistFailedLaunch(
     apiStartTime: args.createArgs.apiStartTime,
     runnerGroup: undefined,
     launchSnapshot: args.context.launchSnapshot,
+    langfuseTraceEnabled: false,
     officialWorkflowProvenance: args.context.officialWorkflowRun?.provenance,
     error: message,
     creditAdmitted: false,

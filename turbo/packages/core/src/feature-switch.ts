@@ -318,6 +318,12 @@ const FEATURE_SWITCHES: Record<FeatureSwitchKey, FeatureSwitch> = {
     enabled: false,
     enabledOrgIdHashes: STAFF_ORG_ID_HASHES,
   },
+  [FeatureSwitchKey.LangfuseTrace]: {
+    maintainer: "ethan@okou.ai",
+    description:
+      "Trace explicitly opted-in Pi runs across the API-first and Sandbox ownership boundary in Langfuse.",
+    enabled: false,
+  },
   [FeatureSwitchKey.IntroVideo]: {
     maintainer: "bingjie@okou.ai",
     description:

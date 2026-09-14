@@ -8,6 +8,7 @@ import {
   type StoredResumeSession,
   type PiApiFirstTurnManifest,
   type PiApiFirstTurnOwnershipTransferMode,
+  type PiLangfuseParent,
   type PiResourceSnapshot,
   type SecretConnectorMetadata,
   type StoredExecutionContext,
@@ -46,6 +47,16 @@ import { command } from "ccstate";
 import { and, eq } from "drizzle-orm";
 
 import { env } from "../../lib/env";
+import {
+  isPiLangfuseDebugRunEnvironment,
+  piLangfuseDebugUserId,
+} from "../../lib/pi-langfuse-debug";
+import {
+  startPiLangfuseOwnershipTransfer,
+  tracePiApiFirstTurn,
+  type PiApiFirstTurnTraceContext,
+  type PiApiFirstTurnTraceResult,
+} from "../../lib/pi-langfuse-tracing";
 import {
   decideApiFirstTurnCommit,
   decideApiFirstTurnHistory,
@@ -558,6 +569,7 @@ interface PreparedApiFirstTurn {
   readonly sessionId: string;
   readonly startedAt: number;
   readonly turn: PiApiFirstTurnResult;
+  readonly langfuseTraceContext?: PiApiFirstTurnTraceContext;
 }
 
 type ApiFirstTurnExecutionResult =
@@ -1187,13 +1199,14 @@ async function validateApiFirstTurnCredentialSources(
 }
 
 async function observeDiscardedProviderResult(
-  operation: Promise<PiApiFirstTurnResult>,
+  operation: Promise<PiApiFirstTurnTraceResult>,
   args: ApiFirstTurnModelContext,
   ownership: PiApiFirstTurnOwnership,
   reason: "api_attempt_timed_out" | "aborted_execution",
 ): Promise<void> {
   const late = await settleIncludingAbort(operation);
   if (late.ok) {
+    late.value.traceContext?.end();
     L.info("Pi API first-turn outcome", {
       runId: args.activation.runId,
       ...piApiFirstTurnOutcomeTelemetry(args.activation.executionContext),
@@ -1201,7 +1214,7 @@ async function observeDiscardedProviderResult(
       reason,
       ownershipStage: ownership.stage,
     });
-    await recordApiFirstTurnUsage(args, late.value);
+    await recordApiFirstTurnUsage(args, late.value.result);
   }
 }
 
@@ -1238,11 +1251,18 @@ function validateApiModelTurnOutcome(turn: PiApiFirstTurnResult): void {
   }
 }
 
+interface ExecutedApiModelTurn {
+  readonly startedAt: number;
+  readonly turn: PiApiFirstTurnResult;
+  readonly langfuseTraceContext?: PiApiFirstTurnTraceContext;
+}
+
 interface ExecuteApiModelTurnArgs {
   readonly onPreparationTiming: PiPreparationObserver;
   readonly activation: PiApiFirstTurnActivation;
   readonly context: ApiFirstTurnModelContext;
   readonly commitIdentity: ApiFirstTurnCommitIdentity;
+  readonly model: PiAgentModelConfig;
   readonly runtime: PreparedPiApiTurn;
   readonly startedAt: number;
   readonly ownership: PiApiFirstTurnOwnership;
@@ -1284,13 +1304,78 @@ async function acquireApiProviderOwnership(
   finish("success");
 }
 
+function runObservedApiModelTurn(
+  args: ExecuteApiModelTurnArgs,
+  providerSignal: AbortSignal,
+  lifecycleSignal: AbortSignal,
+): Promise<PiApiFirstTurnTraceResult> {
+  const langfuseEnabled = isPiLangfuseDebugRunEnvironment(
+    args.activation.executionContext.platformEnvironment,
+  );
+  return tracePiApiFirstTurn(
+    {
+      enabled: langfuseEnabled,
+      runId: args.activation.runId,
+      sessionId: args.activation.executionContext.piSessionId,
+      userId: piLangfuseDebugUserId(args.activation.userId),
+      prompt: args.activation.prompt,
+      model: args.model.model,
+      provider: args.model.provider,
+      execute() {
+        return executePreparedPiApiTurn(
+          args.runtime,
+          {
+            ownership: args.ownership,
+            providerRequestBoundary: async (
+              markProviderRequestMayHaveStarted,
+            ) => {
+              await acquireApiProviderOwnership(
+                args,
+                markProviderRequestMayHaveStarted,
+                providerSignal,
+              );
+            },
+          },
+          providerSignal,
+        );
+      },
+    },
+    lifecycleSignal,
+  );
+}
+
+async function finalizeObservedApiModelTurn(args: {
+  readonly context: ApiFirstTurnModelContext;
+  readonly modelDeadline: number;
+  readonly ownership: PiApiFirstTurnOwnership;
+  readonly startedAt: number;
+  readonly tracedTurn: PiApiFirstTurnTraceResult;
+}): Promise<ExecutedApiModelTurn> {
+  const turn = args.tracedTurn.result;
+  if (now() >= args.modelDeadline) {
+    waitUntil(
+      discardCompletedProviderResult(turn, args.context, args.ownership),
+    );
+    throw piApiFirstTurnError(
+      "PI_API_FIRST_TURN_DEADLINE_EXCEEDED",
+      "Pi API first-turn provider result arrived after its commit deadline",
+    );
+  }
+  await recordApiFirstTurnUsage(args.context, turn);
+  validateApiModelTurnOutcome(turn);
+  return {
+    startedAt: args.startedAt,
+    turn,
+    ...(args.tracedTurn.traceContext
+      ? { langfuseTraceContext: args.tracedTurn.traceContext }
+      : {}),
+  };
+}
+
 async function executeApiModelTurn(
   args: ExecuteApiModelTurnArgs,
   signal: AbortSignal,
-): Promise<{
-  readonly startedAt: number;
-  readonly turn: PiApiFirstTurnResult;
-}> {
+): Promise<ExecutedApiModelTurn> {
   // Use the captured source, never the active account. Revalidation neither
   // refreshes credentials nor changes the prepared runtime, and stays outside
   // the lifecycle lock that owns the final provider transition.
@@ -1309,20 +1394,7 @@ async function executeApiModelTurn(
     Math.max(1, modelDeadline - now()),
   );
   const modelSignal = AbortSignal.any([signal, modelDeadlineSignal]);
-  const operation = executePreparedPiApiTurn(
-    args.runtime,
-    {
-      ownership: args.ownership,
-      providerRequestBoundary: async (markProviderRequestMayHaveStarted) => {
-        await acquireApiProviderOwnership(
-          args,
-          markProviderRequestMayHaveStarted,
-          modelSignal,
-        );
-      },
-    },
-    modelSignal,
-  );
+  const operation = runObservedApiModelTurn(args, modelSignal, signal);
   const executed = await settleIncludingAbort(
     awaitWithSignal(operation, modelSignal),
   );
@@ -1365,19 +1437,19 @@ async function executeApiModelTurn(
       executed.error,
     );
   }
-  const turn = executed.value;
-  if (now() >= modelDeadline) {
-    waitUntil(
-      discardCompletedProviderResult(turn, args.context, args.ownership),
-    );
-    throw piApiFirstTurnError(
-      "PI_API_FIRST_TURN_DEADLINE_EXCEEDED",
-      "Pi API first-turn provider result arrived after its commit deadline",
-    );
-  }
-  await recordApiFirstTurnUsage(args.context, turn);
-  validateApiModelTurnOutcome(turn);
-  return { startedAt, turn };
+  const tracedTurn = executed.value;
+  return await onRejection(
+    finalizeObservedApiModelTurn({
+      context: args.context,
+      modelDeadline,
+      ownership: args.ownership,
+      startedAt,
+      tracedTurn,
+    }),
+    (error) => {
+      tracedTurn.traceContext?.end(error);
+    },
+  );
 }
 
 function validateApiFirstTurnH1(
@@ -1432,6 +1504,7 @@ function ownershipTransferManifest(args: {
     readonly rawSize: number;
   };
   readonly sandboxEventSequenceStart: number;
+  readonly langfuseParent?: PiLangfuseParent;
 }): PiApiFirstTurnManifest {
   return {
     schemaVersion: 3,
@@ -1440,6 +1513,7 @@ function ownershipTransferManifest(args: {
     baseSession: args.baseSession,
     session: args.session,
     sandboxEventSequenceStart: args.sandboxEventSequenceStart,
+    ...(args.langfuseParent ? { langfuseParent: args.langfuseParent } : {}),
   };
 }
 
@@ -1650,7 +1724,12 @@ async function initializeApiFirstTurnRuntime(
     }
     throw initialized.error;
   }
-  return { kind: "api", runtime: initialized.value, startedAt };
+  return {
+    kind: "api",
+    model: runtimeArgs.model,
+    runtime: initialized.value,
+    startedAt,
+  };
 }
 
 async function resolveApiFirstTurnResourcesAndModel(
@@ -1866,11 +1945,12 @@ const executePreparedApiFirstTurn$ = command(
       route: normalizePiExecutionRoute(executionContext.piModelConfig),
     };
     const onPreparationTiming = piPreparationObserver(args.activation.runId);
-    const { startedAt, turn } = await executeApiModelTurn(
+    const { startedAt, turn, langfuseTraceContext } = await executeApiModelTurn(
       {
         activation: args.activation,
         context: modelContext,
         commitIdentity,
+        model: inputs.model,
         runtime: inputs.runtime,
         startedAt: inputs.startedAt,
         ownership,
@@ -1879,10 +1959,13 @@ const executePreparedApiFirstTurn$ = command(
       signal,
     );
     signal.throwIfAborted();
-    const { sessionBytes, sessionHash } = validateApiFirstTurnH1(
-      turn,
-      sessionId,
-    );
+    const validatedH1 = safeSync(() => {
+      return validateApiFirstTurnH1(turn, sessionId);
+    });
+    if ("error" in validatedH1) {
+      langfuseTraceContext?.end(validatedH1.error);
+      throw validatedH1.error;
+    }
     signal.throwIfAborted();
     const auth: SandboxAuth = {
       userId: args.activation.userId,
@@ -1894,11 +1977,12 @@ const executePreparedApiFirstTurn$ = command(
       auth,
       baseSession: launchConfig.baseSession,
       commitIdentity,
-      sessionBytes,
-      sessionHash,
+      sessionBytes: validatedH1.ok.sessionBytes,
+      sessionHash: validatedH1.ok.sessionHash,
       sessionId,
       startedAt,
       turn,
+      ...(langfuseTraceContext ? { langfuseTraceContext } : {}),
     };
   },
 );
@@ -2048,6 +2132,9 @@ const commitApiFirstTurn$ = command(async function commitApiFirstTurn(
           ];
     await set(publishEvents$, { auth: prepared.auth, events }, signal);
     if (transition.outcome === "transfer") {
+      const langfuseTransfer = startPiLangfuseOwnershipTransfer(
+        prepared.langfuseTraceContext,
+      );
       const manifest = ownershipTransferManifest({
         mode: transition.mode,
         baseSession: prepared.baseSession,
@@ -2057,12 +2144,17 @@ const commitApiFirstTurn$ = command(async function commitApiFirstTurn(
           rawSize: prepared.sessionBytes.length,
         },
         sandboxEventSequenceStart: nextSequenceNumber,
+        ...(langfuseTransfer
+          ? { langfuseParent: langfuseTransfer.parent }
+          : {}),
       });
-      await set(
-        writeManifest$,
-        { runId: args.activation.runId, manifest },
-        signal,
+      await onRejection(
+        set(writeManifest$, { runId: args.activation.runId, manifest }, signal),
+        (error) => {
+          langfuseTransfer?.end(error);
+        },
       );
+      langfuseTransfer?.end();
       L.debug("Pi API first-turn outcome", {
         runId: args.activation.runId,
         ...piApiFirstTurnOutcomeTelemetry(args.activation.executionContext),
@@ -2212,6 +2304,7 @@ const executeApiFirstTurn$ = command(async function executeApiFirstTurn(
   signal.throwIfAborted();
   if (inputs.kind === "large-history") {
     await set(publishLargeHistoryTransfer$, args, commitProgress, signal);
+    signal.throwIfAborted();
     return { outcome: "transferred" };
   }
   const prepared = await set(
@@ -2225,22 +2318,28 @@ const executeApiFirstTurn$ = command(async function executeApiFirstTurn(
   });
   signal.throwIfAborted();
   const committed = await settle(
-    set(commitApiFirstTurn$, args, prepared, commitProgress, signal),
+    onRejection(
+      set(commitApiFirstTurn$, args, prepared, commitProgress, signal),
+      (error) => {
+        prepared.langfuseTraceContext?.end(error);
+      },
+    ),
     signal,
   );
   if (!committed.ok) {
-    if (
+    const error =
       committed.error instanceof PiApiFirstTurnError ||
       committed.error instanceof PiApiFirstTurnCanonicalCancellationError
-    ) {
-      throw committed.error;
-    }
-    throw piApiFirstTurnError(
-      "PI_API_COMMIT_FAILED",
-      "Pi API first-turn H1 commit failed",
-      committed.error,
-    );
+        ? committed.error
+        : piApiFirstTurnError(
+            "PI_API_COMMIT_FAILED",
+            "Pi API first-turn H1 commit failed",
+            committed.error,
+          );
+    prepared.langfuseTraceContext?.end(error);
+    throw error;
   }
+  prepared.langfuseTraceContext?.end();
   return committed.value;
 });
 

@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
 
+import type { PiAgentModelConfig } from "@okouai/pi-agent-runtime";
 import type { PreparedPiApiTurn } from "@okouai/pi-agent-runtime/api";
 
 import {
@@ -15,6 +16,7 @@ export type PiApiFirstTurnPreparedInputs =
   | { readonly kind: "large-history" }
   | {
       readonly kind: "api";
+      readonly model: PiAgentModelConfig;
       readonly runtime: PreparedPiApiTurn;
       readonly startedAt: number;
     };

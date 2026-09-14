@@ -125,6 +125,8 @@ import {
 } from "../../../lib/time";
 import { server } from "../../../mocks/server";
 import {
+  readQueuedLangfuseContextFixture,
+  readRunLangfuseTraceEnabledFixture,
   readRunModelRuntimeRouteFixture,
   readSessionHistoryBlobRefCountFixture,
   setRunLaunchSnapshotFixture,
@@ -8058,6 +8060,90 @@ describe("CHAT-02: model-first provider policies", () => {
     },
     90_000,
   );
+
+  it("persists Langfuse trace admission after runner claim", async () => {
+    const { actor, agentId, runnerGroup } = await entitledChatActor();
+    const orgId = requireOrgId(actor);
+    await publishPendingPiInstructions(actor, agentId);
+    await configureBuiltInPiModel(actor, "gpt-5.6-terra");
+    const usagePricingResolution = await createGptUsagePricingResolution();
+    mockPiResourceArchiveDownloads(true);
+    mockPiCheckpointObjectStore();
+    mockOptionalEnv("LANGFUSE_PUBLIC_KEY", "pk-lf-bdd-trace-admission");
+    mockOptionalEnv("LANGFUSE_SECRET_KEY", "sk-lf-bdd-trace-admission");
+    server.use(
+      http.post("https://api.openai.com/v1/responses", () => {
+        return new HttpResponse(
+          piResponsesToolSse({
+            callId: "call_langfuse_trace_admission",
+            name: "read",
+            arguments: { path: "/etc/os-release" },
+            sequence: 1,
+          }),
+          { headers: { "content-type": "text/event-stream" } },
+        );
+      }),
+    );
+    await updateFeatureSwitchesForUser(
+      context,
+      { ...actor, orgId },
+      {
+        [FeatureSwitchKey.PiLoop]: true,
+        [FeatureSwitchKey.LangfuseTrace]: true,
+      },
+    );
+    await api.heartbeatRunner(runnerGroup);
+
+    const run = await sendChatRun(
+      actor,
+      {
+        agentId,
+        prompt: "preserve the Langfuse trace gate through claim",
+        model: "gpt-5.6-terra",
+      },
+      usagePricingResolution,
+    );
+    await flushWaitUntilForTest();
+    await expect(
+      readRunLangfuseTraceEnabledFixture(run.runId),
+    ).resolves.toBeTruthy();
+    const queuedContext = await readQueuedLangfuseContextFixture({
+      runId: run.runId,
+      userId: actor.userId,
+      orgId,
+    });
+    expect(queuedContext.platformEnvironment).toMatchObject({
+      OKOU_PI_LANGFUSE_DEBUG_ENABLED: "true",
+      LANGFUSE_TRACING_ENABLED: "true",
+    });
+    expect(queuedContext.platformEnvironment).not.toHaveProperty(
+      "LANGFUSE_PUBLIC_KEY",
+    );
+    expect(queuedContext.platformEnvironment).not.toHaveProperty(
+      "LANGFUSE_SECRET_KEY",
+    );
+    expect(queuedContext.encryptedSecrets).toMatchObject({
+      LANGFUSE_PUBLIC_KEY: "pk-lf-bdd-trace-admission",
+      LANGFUSE_SECRET_KEY: "sk-lf-bdd-trace-admission",
+    });
+
+    const claimed = await claimChatRun(runnerGroup, run.runId);
+    expect(claimed.claim.cliAgentType).toBe("pi");
+    expect(claimed.claim.platformEnvironment).toMatchObject({
+      LANGFUSE_PUBLIC_KEY: "pk-lf-bdd-trace-admission",
+      LANGFUSE_SECRET_KEY: "sk-lf-bdd-trace-admission",
+    });
+    expect(claimed.claim.secretValues).toStrictEqual(
+      expect.arrayContaining([
+        "pk-lf-bdd-trace-admission",
+        "sk-lf-bdd-trace-admission",
+      ]),
+    );
+    await expect(
+      readRunLangfuseTraceEnabledFixture(run.runId),
+    ).resolves.toBeTruthy();
+    await cancelChatRun(actor, run.runId, claimed.sandboxHeaders);
+  });
 
   it("pins recall-enabled Pi memory through API completion and Sandbox handoff", async () => {
     const { actor, agentId, runnerGroup } = await entitledChatActor();
