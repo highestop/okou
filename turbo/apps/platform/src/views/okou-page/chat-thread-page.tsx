@@ -90,6 +90,7 @@ import {
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
+  BrandLangfuse,
   BrandSlack,
   ElapsedTime,
   ThinkingMessages,
@@ -242,6 +243,7 @@ import type {
 } from "../../signals/chat-page/chat-event-types.ts";
 import type { ChatRunModelSelection } from "../../signals/chat-page/chat-event-state.ts";
 import type { AgentReferenceSignals } from "../../signals/chat-page/agent-reference-signals.ts";
+import type { RunDetailSignals } from "../../signals/chat-page/run-detail.ts";
 import type { AssistantErrorRecovery } from "../../signals/chat-page/assistant-error-recovery.ts";
 import { userMessageFileAttachments } from "../../signals/chat-page/user-message-files.ts";
 import type {
@@ -7582,8 +7584,62 @@ function RelatedArtifactsDialog({
   );
 }
 
+function RunLangfuseLink({ signals }: { readonly signals: RunDetailSignals }) {
+  const { t } = useTranslation();
+  const detail = useLoadable(signals.detail$);
+  const url =
+    detail.state === "hasData" ? detail.data?.langfuseTraceUrl : undefined;
+  if (!url) {
+    return null;
+  }
+  return (
+    <TooltipProvider delayDuration={300}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            asChild
+            variant="quiet"
+            size="icon-xs"
+            iconSize="sm"
+            className="text-muted-foreground/60"
+          >
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={t(($) => {
+                return $.chat.run.viewLangfuseTrace;
+              })}
+            >
+              <BrandLangfuse aria-hidden />
+            </a>
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">
+          {t(($) => {
+            return $.chat.run.viewLangfuseTrace;
+          })}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+function RunLangfuseAction({
+  thread,
+  runId,
+}: {
+  readonly thread: ChatPanelSignals;
+  readonly runId: string;
+}) {
+  const runDetails = useGet(thread.runDetails$);
+  const signals = runDetails.get(runId);
+  return signals ? <RunLangfuseLink signals={signals} /> : null;
+}
+
 function PagedGroupPrimaryActions({
   firstRunId,
+  thread,
   hasContent,
   usage,
   copied,
@@ -7591,6 +7647,7 @@ function PagedGroupPrimaryActions({
   relatedArtifacts,
 }: {
   firstRunId: string | undefined;
+  thread: ChatPanelSignals;
   hasContent: boolean;
   usage: ChatEventUsagePayload | undefined;
   copied: boolean;
@@ -7644,6 +7701,9 @@ function PagedGroupPrimaryActions({
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
+      )}
+      {showActivityLogs && firstRunId && (
+        <RunLangfuseAction thread={thread} runId={firstRunId} />
       )}
       {hasContent && (
         <TooltipProvider delayDuration={300}>
@@ -7729,6 +7789,7 @@ function PagedGroupActions({
     <div className={CHAT_THREAD_ASSISTANT_MESSAGE_ACTIONS_CLASS}>
       <PagedGroupPrimaryActions
         firstRunId={firstRunId}
+        thread={thread}
         hasContent={hasContent}
         usage={usage}
         copied={copied}

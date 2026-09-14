@@ -8061,6 +8061,79 @@ describe("CHAT-02: model-first provider policies", () => {
     90_000,
   );
 
+  it("exposes the owner's run trace URL after tracing is disabled", async () => {
+    const { actor, agentId } = await entitledChatActor();
+    const orgId = requireOrgId(actor);
+    await configureBuiltInPiModel(actor, "gpt-5.6-terra");
+    const pricing = await createGptUsagePricingResolution();
+    mockPiResourceArchiveDownloads();
+    mockPiCheckpointObjectStore();
+    mockOptionalEnv("LANGFUSE_PUBLIC_KEY", "pk-lf-bdd-trace-link");
+    mockOptionalEnv("LANGFUSE_SECRET_KEY", "sk-lf-bdd-trace-link");
+    mockOptionalEnv("LANGFUSE_BASE_URL", "https://langfuse.example/");
+    server.use(
+      http.post("https://api.openai.com/v1/responses", () => {
+        return new HttpResponse(piResponsesTextSse("Completed answer", 0), {
+          headers: { "content-type": "text/event-stream" },
+        });
+      }),
+    );
+    await updateFeatureSwitchesForUser(
+      context,
+      { ...actor, orgId },
+      {
+        [FeatureSwitchKey.PiLoop]: true,
+        [FeatureSwitchKey.LangfuseTrace]: true,
+      },
+    );
+    const traced = await sendChatRun(
+      actor,
+      {
+        agentId,
+        prompt: "complete a traced run",
+        model: "gpt-5.6-terra",
+      },
+      pricing,
+    );
+    await waitForRunStatus(actor, traced.runId, "completed");
+    await flushWaitUntilForTest();
+    await updateFeatureSwitchesForUser(
+      context,
+      { ...actor, orgId },
+      {
+        [FeatureSwitchKey.LangfuseTrace]: false,
+      },
+    );
+    const traceUrl = `https://langfuse.example/trace/${traced.runId.replaceAll("-", "")}`;
+    expect((await api.readRun(actor, traced.runId)).langfuseTraceUrl).toBe(
+      traceUrl,
+    );
+    const untraced = await sendChatRun(
+      actor,
+      {
+        agentId,
+        threadId: traced.threadId,
+        prompt: "continue without tracing",
+        model: "gpt-5.6-terra",
+      },
+      pricing,
+    );
+    await waitForRunStatus(actor, untraced.runId, "completed");
+    await flushWaitUntilForTest();
+    await expect(
+      api.readRun(actor, untraced.runId),
+    ).resolves.not.toHaveProperty("langfuseTraceUrl");
+    expect((await api.readRun(actor, traced.runId)).langfuseTraceUrl).toBe(
+      traceUrl,
+    );
+    const peer = { ...actor, userId: `${actor.userId}_peer` };
+    await api.requestReadRun(peer, traced.runId, [404]);
+    mockOptionalEnv("LANGFUSE_BASE_URL", "javascript:alert(1)");
+    await expect(api.readRun(actor, traced.runId)).resolves.not.toHaveProperty(
+      "langfuseTraceUrl",
+    );
+  });
+
   it("persists Langfuse trace admission after runner claim", async () => {
     const { actor, agentId, runnerGroup } = await entitledChatActor();
     const orgId = requireOrgId(actor);
