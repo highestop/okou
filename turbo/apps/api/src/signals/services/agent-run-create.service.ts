@@ -300,7 +300,9 @@ import {
   activePersonalModelProviderAccount,
   ensurePersonalModelProviderAccount,
   coordinatePersonalSubscriptionCredentials,
-  reconcileLockedPersonalSubscriptionCredentials,
+  preparePersonalSubscriptionAdmission,
+  validatePersonalSubscriptionAdmission,
+  type PreparedPersonalSubscriptionAdmission,
   isPersonalSubscriptionProviderType,
   personalModelProviderAccountById,
 } from "./model-provider-account.service";
@@ -924,6 +926,7 @@ interface CommitPreparedLaunchArgs {
   readonly callbackRows: readonly AgentRunCallbackInsert[];
   readonly launch: PreparedRunnerLaunch;
   readonly encryptedQueuedParams: string | undefined;
+  readonly subscriptionAdmission: PreparedPersonalSubscriptionAdmission | null;
   readonly timing: ApiDispatchTimingCollector;
 }
 
@@ -8670,14 +8673,17 @@ async function validateCapturedSubscriptionAccount(
       userId: args.createArgs.userId,
       type: provider.type,
     });
-    const coherent = await reconcileLockedPersonalSubscriptionCredentials({
-      db: tx,
-      orgId: args.createArgs.orgId,
-      userId: args.createArgs.userId,
-      type: provider.type,
-      sourceId: provider.id ?? undefined,
-      featureSwitchContext: args.context.featureSwitchContext,
-    });
+    const coherent = await validatePersonalSubscriptionAdmission(
+      {
+        db: tx,
+        orgId: args.createArgs.orgId,
+        userId: args.createArgs.userId,
+        type: provider.type,
+        sourceId: provider.id ?? undefined,
+        featureSwitchContext: args.context.featureSwitchContext,
+      },
+      args.subscriptionAdmission,
+    );
     const account =
       coherent && provider.id
         ? await personalModelProviderAccountById({
@@ -10706,6 +10712,24 @@ const commitAndActivateAtomicLaunch$ = command(
     signal: AbortSignal,
   ): Promise<QueueFirstAgentRunResult> => {
     const { input, identity, callbackRows, launch } = args;
+    const provider = input.context.modelProvider;
+    const subscriptionAdmission =
+      provider?.id &&
+      isPersonalSubscriptionProviderType(provider.type) &&
+      provider.credentialOwner === "member"
+        ? await preparePersonalSubscriptionAdmission(
+            {
+              db: input.db,
+              orgId: input.args.orgId,
+              userId: input.args.userId,
+              type: provider.type,
+              sourceId: provider.id,
+              featureSwitchContext: input.context.featureSwitchContext,
+            },
+            signal,
+          )
+        : null;
+    signal.throwIfAborted();
     const executionContext = launch.runnerJobPayload.executionContext;
     const preparation =
       input.context.body.triggerSource !== "goal" &&
@@ -10745,6 +10769,7 @@ const commitAndActivateAtomicLaunch$ = command(
               callbackRows,
               launch,
               encryptedQueuedParams,
+              subscriptionAdmission,
               timing: input.timing,
             });
           },
