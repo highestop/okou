@@ -12,7 +12,6 @@ import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import {
   click,
-  fill,
   queryAllByRoleFast,
   setupPage,
   startPage,
@@ -169,7 +168,7 @@ test.each([
   expect(control("Intro video", dialog, "tab")).toBeVisible();
 });
 
-test("Expanded style tags combine with search and preserve the selected style", async () => {
+test("Expanded style tags filter the gallery and preserve the selected style", async () => {
   installCatalogs();
   const { dialog } = await openIntroVideo();
   expect(control("Use selection", dialog)).toBeDisabled();
@@ -184,12 +183,11 @@ test("Expanded style tags combine with search and preserve the selected style", 
   expect(within(dialog).getByText("Watercolor")).toBeVisible();
   expect(within(dialog).queryByLabelText("Select style Minimalism")).toBeNull();
   expect(control("Style", dialog, "tab")).toHaveTextContent("Minimalism");
-  await fill(within(dialog).getByLabelText("Search styles"), "no match");
+  click(control("Pop culture", tags));
   expect(within(dialog).getByRole("status")).toHaveTextContent(
     "No matches found",
   );
-  await fill(within(dialog).getByLabelText("Search styles"), "");
-  click(control("Handmade and materials", tags));
+  click(control("Pop culture", tags));
   expect(control("Handmade and materials", tags)).toHaveAttribute(
     "aria-pressed",
     "false",
