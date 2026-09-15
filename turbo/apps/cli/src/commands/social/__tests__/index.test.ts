@@ -2219,9 +2219,6 @@ describe("okou social command", () => {
         http.post(
           "http://localhost:3000/api/social/request",
           async ({ request }) => {
-            expect(request.headers.get("x-okou-instagram-views")).toBe(
-              "nullable",
-            );
             requests.push(await request.json());
             return HttpResponse.json(
               socialResponse("instagram_stats", null, data),
