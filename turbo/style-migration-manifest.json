@@ -1106,6 +1106,25 @@
       "evidence": [],
       "pullRequest": null,
       "mergeCommit": null
+    },
+    {
+      "id": "shimmer-text",
+      "family": "motion-and-injection",
+      "tokens": ["okou-shimmer-text"],
+      "consumers": ["apps/platform/src/views/okou-page/chat-thread-page.tsx"],
+      "cases": [
+        "shimmer-text-light",
+        "shimmer-text-dark",
+        "shimmer-text-light-retina",
+        "shimmer-text-dark-retina",
+        "shimmer-text-narrow",
+        "shimmer-text-narrow-dark"
+      ],
+      "status": "implemented",
+      "blockedReason": null,
+      "evidence": [],
+      "pullRequest": null,
+      "mergeCommit": null
     }
   ],
   "caseFiles": [
@@ -1135,6 +1154,7 @@
     "../e2e/playwright/style-migration/onboarding-diagram-cases.json",
     "../e2e/playwright/style-migration/fixed-viewport-cover-cases.json",
     "../e2e/playwright/style-migration/markdown-card-cases.json",
-    "../e2e/playwright/style-migration/markdown-body-cases.json"
+    "../e2e/playwright/style-migration/markdown-body-cases.json",
+    "../e2e/playwright/style-migration/shimmer-text-cases.json"
   ]
 }
