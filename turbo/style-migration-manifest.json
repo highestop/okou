@@ -852,6 +852,29 @@
       "evidence": [],
       "pullRequest": "https://github.com/vm0-ai/vm0/pull/34059",
       "mergeCommit": null
+    },
+    {
+      "id": "chat-transcript-card",
+      "family": "chat-and-content",
+      "tokens": ["okou-chat-card", "okou-chat-frame"],
+      "consumers": [
+        "apps/platform/src/views/okou-page/banking-action-card.tsx",
+        "apps/platform/src/views/okou-page/browser-session-card.tsx",
+        "apps/platform/src/views/okou-page/chat-body-cards.tsx",
+        "apps/platform/src/views/okou-page/chat-thread-page.tsx",
+        "apps/platform/src/views/okou-page/connector-account-action-card.tsx",
+        "apps/platform/src/views/okou-page/attachment-chips.tsx"
+      ],
+      "cases": [
+        "chat-transcript-card-light",
+        "chat-transcript-card-dark",
+        "chat-transcript-card-light-retina",
+        "chat-transcript-card-dark-retina",
+        "chat-transcript-card-narrow",
+        "chat-transcript-card-narrow-dark"
+      ],
+      "status": "implemented",
+      "evidence": []
     }
   ],
   "caseFiles": [
@@ -874,6 +897,7 @@
     "../e2e/playwright/style-migration/okou-border-hairline-cases.json",
     "../e2e/playwright/style-migration/external-contract-audit-cases.json",
     "../e2e/playwright/style-migration/chat-bubble-cases.json",
-    "../e2e/playwright/style-migration/code-fence-copy-cases.json"
+    "../e2e/playwright/style-migration/code-fence-copy-cases.json",
+    "../e2e/playwright/style-migration/chat-card-cases.json"
   ]
 }
