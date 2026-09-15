@@ -49,6 +49,8 @@ const AVATAR: Readonly<IntroVideoAvatar> = {
   groupId: "daphne",
   name: "Daphne in Grey blazer",
   defaultVoiceId: "daphne-voice",
+  defaultVoiceName: "Daphne - Warm & Friendly",
+  defaultVoiceSampleUrl: "https://files.example.test/daphne-voice.mp3",
   previewImageUrl: "https://files.example.test/daphne.png",
 };
 const VOICE = Object.freeze({
@@ -58,6 +60,8 @@ const VOICE = Object.freeze({
   gender: "female" as const,
   sampleUrl: "https://files.example.test/annie.mp3",
 });
+/** HeyGen lists some voices under a second id that plays the same sample. */
+const VOICE_TWIN = Object.freeze({ ...VOICE, id: "annie-second-id" });
 
 function installCatalogs() {
   const capture = mockTemplateChat();
@@ -79,7 +83,11 @@ function installCatalogs() {
     });
   });
   context.mocks.api(introVideoPresenterContract.voices, ({ respond }) => {
-    return respond(200, { voices: [VOICE], hasMore: false, nextToken: null });
+    return respond(200, {
+      voices: [VOICE, VOICE_TWIN],
+      hasMore: false,
+      nextToken: null,
+    });
   });
   return capture;
 }
@@ -233,6 +241,33 @@ test("Avatar looks require Use, and explicit voice choices survive removing the 
       },
     },
   });
+});
+
+test("A voice the provider repeats under a second id is listed once", async () => {
+  installCatalogs();
+  const { dialog } = await openIntroVideo();
+  click(control("Voice", dialog, "tab"));
+  await within(dialog).findByLabelText("Select voice Annie");
+  expect(within(dialog).getAllByLabelText("Select voice Annie")).toHaveLength(
+    1,
+  );
+});
+
+test("The chosen avatar's own voice can be auditioned at the voice step", async () => {
+  installCatalogs();
+  const { dialog } = await openIntroVideo();
+  click(control("Avatar", dialog, "tab"));
+  await within(dialog).findByText("Daphne");
+  click(control("Choose an avatar: Daphne in Grey blazer", dialog));
+  click(control("Voice", dialog, "tab"));
+  const preview = await within(dialog).findByLabelText(
+    "Preview voice Daphne - Warm & Friendly",
+  );
+  expect(preview).toBeEnabled();
+  click(within(dialog).getByText("No voiceover"));
+  expect(control("Voice", dialog, "tab")).toHaveTextContent("No voiceover");
+  click(within(dialog).getByText("Avatar’s voice"));
+  expect(control("Voice", dialog, "tab")).toHaveTextContent("Avatar’s voice");
 });
 
 test("Applying and reopening a template restores all settings without creating another chip", async () => {
