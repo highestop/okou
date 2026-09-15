@@ -9,7 +9,6 @@
     "okou-markdown-card",
     "okou-mobile-fixed-safe-area",
     "okou-mobile-sidebar",
-    "okou-pwa-fixed-cover",
     "okou-shimmer-text",
     "okou-sidebar-header",
     "okou-workspace-bg",
@@ -84,13 +83,6 @@
         "selector": ".okou-fixed-viewport-shell",
         "property": "padding",
         "value": "var(--sat) var(--sar) var(--sab) var(--sal)",
-        "important": false
-      },
-      {
-        "atRules": ["@media (display-mode:standalone)"],
-        "selector": ".okou-pwa-fixed-cover",
-        "property": "bottom",
-        "value": "calc(-1*var(--sab))",
         "important": false
       },
       {
@@ -2382,8 +2374,7 @@
       "okou-app": 2
     },
     "apps/platform/src/views/okou-page/sidebar-layout.tsx": {
-      "okou-app": 1,
-      "okou-pwa-fixed-cover": 1
+      "okou-app": 1
     },
     "apps/platform/src/views/okou-page/sidebar.tsx": {
       "okou-desktop-titlebar-drag-region": 2,

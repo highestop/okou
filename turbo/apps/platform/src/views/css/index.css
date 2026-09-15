@@ -355,12 +355,6 @@ body {
   padding: var(--sat) var(--sar) var(--sab) var(--sal);
 }
 
-@media (display-mode: standalone) {
-  .okou-pwa-fixed-cover {
-    bottom: calc(-1 * var(--sab));
-  }
-}
-
 @media (max-width: 767px) {
   /* Fixed mobile surfaces escape the page shell, so their interactive content
      owns an immutable safe-area boundary. */

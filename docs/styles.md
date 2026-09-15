@@ -918,6 +918,67 @@ utility, past the length this family keeps its class strings under. Choosing
 between that and an App-owned gradient token for a single consumer is a design
 decision rather than a mechanical replacement.
 
+### The standalone PWA fixed cover
+
+The `okou-pwa-fixed-cover` selector and its consumers have been removed. It was
+one declaration — `bottom: calc(-1 * var(--sab))` inside
+`@media (display-mode: standalone)` — on the mobile drawer scrim and on the
+artifact-preview dialog backdrop. Both are `fixed inset-0`, and a fixed cover is
+clipped by the visual viewport, so in a standalone PWA it stops short of the
+bottom safe inset; extending `bottom` paints it to the physical edge while the
+drawer's own content keeps its safe-area padding. Each consumer now writes
+`[@media(display-mode:standalone)]:bottom-[calc(-1*var(--sab))]`.
+
+Tailwind has no `display-mode` variant, and this is a genuine environment
+condition rather than a token decision, so it stays an arbitrary variant over an
+arbitrary value — the shape the existing `[@media(hover:hover)]:` call sites
+already use. The utility has to win against the `inset-0` on the same element,
+and it does: Tailwind emits the `inset` shorthand before the `bottom` longhand
+inside `@layer utilities`, and `cn()` keeps both, because a modifier-prefixed
+`bottom-*` never conflicts with an unprefixed `inset-0`.
+
+Measured against `main` with the App's own Tailwind compiler in Chromium over
+CDP: 216 states per pointer mode — two fixtures, the shell with its drawer and
+scrim and the portaled dialog backdrop, across the default palette plus the
+eight gradient palettes in Light and Dark, at 1440x900, 390x844 DPR 2 and 767px,
+each with and without a standalone display mode. Zero changed pixels and zero
+computed-style or geometry differences in both the fine-pointer and
+coarse-pointer runs.
+
+Two details make those zeros meaningful. `--sat`/`--sar`/`--sab`/`--sal` come
+from `env(safe-area-inset-*)` and resolve to `0px` in a desktop Chromium, which
+would make every inset under test measure zero and report a false no-change, so
+the harness injects non-zero insets on both sides and asserts them at every
+capture. And `display-mode` cannot be emulated: in Chromium 152
+`Emulation.setEmulatedMedia` accepts `{name:"display-mode",value:"standalone"}`
+without error while `matchMedia` still reports `browser`, for features-only,
+with `media:"screen"`, with `media:""`, and for value `fullscreen`. A window
+launched with `--app=<url>` against a served web app manifest reports a real
+standalone display mode, so the standalone states run there rather than against
+a substituted media condition.
+
+A pixel diff alone also cannot accept this rule, because its whole effect is
+paint below the visual viewport: on-screen pixels are identical whether it
+applies or not. Geometry is its channel, and the negative controls check both
+channels separately — dropping the migrated bottom extension moves the scrim and
+backdrop boxes without changing a pixel, while dropping their background fills
+changes millions of pixels.
+
+`okou-mobile-sidebar` and `okou-mobile-fixed-safe-area` remain legacy selectors.
+They sit together on the mobile drawer `aside`, and spelling them as utilities
+takes that element from 288 to 499 characters of class list and from two to six
+bracketed arbitrary values. Whether a six-declaration `::before` paint layer and
+a four-value safe-area padding belong inline there, behind a shared safe-area
+decision, or inside a drawer-surface component is a token-layer design call, so
+the batch is recorded `blocked` rather than resolved. The mechanics are
+otherwise clear: both rules are unlayered but nothing else on the element sets
+`isolation`, `::before`, padding or `box-sizing`, so no important marker would be
+needed. One difference would not be exact — Tailwind's `max-md` emits
+`@media (width < 48rem)` while the retired rule stopped at `max-width: 767px`,
+so between 767px and 768px the padding would newly apply. The element already
+gates its whole fixed-drawer geometry on `max-md`, so the two spellings disagree
+there today.
+
 ## Exception boundary
 
 Only two exception kinds exist:
