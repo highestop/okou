@@ -181,6 +181,51 @@ apply; a failed cleanup blocks release and rolls back. #29777 removes the
 remaining singleton contract only after this migration release succeeds.
 Investigate unexpected new singleton writes rather than adding a cleanup loop.
 
+#### Slack connector OAuth rollout cleanup
+
+The combined Slack integration and user OAuth flow from
+[#33421](https://github.com/vm0-ai/vm0/pull/33421) first shipped in App `0.887.0`
+and API `1.584.1`, release
+`9ce193854ab828baeec40579a6d36cdf2d4dbf73`. Its
+[API promotion](https://github.com/vm0-ai/vm0/actions/runs/34578216432/job/103198883138)
+completed on 2026-09-11 at 08:30:58 UTC, followed by
+[App promotion](https://github.com/vm0-ai/vm0/actions/runs/34578216432/job/103199718280)
+at 08:33:05 UTC. App `0.886.0` still omitted `requestUserScopes`.
+
+On 2026-09-15, production App HTML identified App `0.899.2` from
+`05af5a0fe3cdbd9188a9b3d66545bab2dab2a834`. Its
+[API promotion](https://github.com/vm0-ai/vm0/actions/runs/34940290360/job/104290489082)
+completed at 07:25:09 UTC with API `1.603.2`, followed by
+[App promotion](https://github.com/vm0-ai/vm0/actions/runs/34940290360/job/104291320762)
+at 07:27:07 UTC. The canonical rollback resolver already requires
+`PREPARED_DOMAIN_TRIGGER_RELEASE`
+`eb2f211a9af41450d0d5dad10c0c8ad12fac0a24`, which contains #33421. Pre-OAuth
+APIs are outside the supported production rollback boundary without adding a
+new rollback restriction.
+
+Cleanup [#34306](https://github.com/vm0-ai/vm0/pull/34306) raises the App floor
+from `0.873.0` to `0.887.0` in this later release, after the replacement App is
+live. Identified App versions below that floor receive `426` before route
+handling and must refresh on their next handled API request. Idle pages are
+not reloaded automatically. This affects all handled App API requests. An App
+rollback must also remain at or above `0.887.0` while this floor is enforced.
+
+Slack Connect requires `requestUserScopes: true` and returns only
+`202 { authorizationUrl }` on success. The App follows that URL; connection
+binding and notifications happen after the existing OAuth callback verifies
+the grant. The direct-connect branch, its response shape, and rollout-only
+tests are removed. Existing callback identity, workspace, membership, and
+single-use-state checks remain in force.
+
+The floor does not exclude non-App callers or missing/unparseable versions;
+they can use the same canonical OAuth request. Authenticated requests without
+`requestUserScopes: true` receive the contract's `400` validation response.
+Current repository production code has one caller, the App, which already
+sends that field; no CLI caller was found. The complete retained 72-hour
+request-log query ending 2026-09-15 at 07:14:20 UTC contained one POST: App
+`0.893.2`, response `202`. It found no non-App or unidentified POST; this is
+bounded caller evidence, not a guarantee about every external client.
+
 ### Backend
 
 The backend is the compatibility boundary for both frontend and runner traffic.
