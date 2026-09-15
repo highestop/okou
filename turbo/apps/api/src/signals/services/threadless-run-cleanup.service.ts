@@ -43,6 +43,13 @@ import {
   PI_MEMORY_PHASE2_MODEL,
 } from "./pi-memory-phase2-usage.service";
 
+import {
+  deleteLockedRuns,
+  deleteRunConversations,
+  logCommittedConversationDeletion,
+  releaseDeletedConversationReferences,
+} from "./conversation-history-deletion.service";
+
 const L = logger("ThreadlessRunCleanup");
 
 const ACTIVE_RUN_STATUSES = ["queued", "pending", "running"] as const;
@@ -271,7 +278,7 @@ async function deleteIfStillEligible(
   candidate: ThreadlessRunCandidate,
   quietBefore: Date,
 ): Promise<boolean> {
-  return await db.transaction(async (tx) => {
+  const receipt = await db.transaction(async (tx) => {
     const [current] = await tx
       .select({
         status: agentRuns.status,
@@ -291,7 +298,7 @@ async function deleteIfStillEligible(
       current.completedAt === null ||
       current.completedAt > quietBefore
     ) {
-      return false;
+      return null;
     }
 
     const [metadataRun] = await tx
@@ -305,7 +312,7 @@ async function deleteIfStillEligible(
       )
       .limit(1);
     if (!metadataRun || metadataRun.chatThreadId !== null) {
-      return false;
+      return null;
     }
 
     if (
@@ -315,7 +322,7 @@ async function deleteIfStillEligible(
         userId: candidate.userId,
       })
     ) {
-      return false;
+      return null;
     }
 
     if (
@@ -323,19 +330,22 @@ async function deleteIfStillEligible(
         nowDate().getTime() - PI_MEMORY_PHASE2_USAGE_DRAIN_MS &&
       (await loadPiMemoryPhase2UsageBinding(tx, candidate))
     ) {
-      return false;
+      return null;
     }
 
     if (await hasDeletionBlocker(tx, candidate.runId)) {
-      return false;
+      return null;
     }
 
-    const [deleted] = await tx
-      .delete(agentRuns)
-      .where(eq(agentRuns.id, candidate.runId))
-      .returning({ id: agentRuns.id });
-    return deleted !== undefined;
+    const removed = await deleteRunConversations(tx, [candidate.runId]);
+    await deleteLockedRuns(tx, [candidate.runId]);
+    return await releaseDeletedConversationReferences(tx, removed);
   });
+  if (receipt === null) {
+    return false;
+  }
+  logCommittedConversationDeletion("threadless", receipt);
+  return true;
 }
 
 const redriveTerminalLifecycle$ = command(
