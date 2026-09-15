@@ -1384,6 +1384,16 @@ The Access feature switch controls rollout; it does not add an Agent permission.
 Native Service Auth interoperability must be verified; S1 contract tests are not
 provider E2E evidence. Do not use a production feature override as a test fixture.
 
+The management UI uses the existing canonical Access endpoints; it adds no
+schema or private Runner contract. With Access off it keeps Direct management
+available and hides Access creation. Already-bound hosts still identify their
+protected transport; editing, resetting keys and deleting them remain unavailable
+under the canonical API gate. Removing a binding requires Access eligibility and
+an explicit Direct selection. Losing the feature or changing
+owner clears open secret forms and cancels their pending UI work. API authorization
+and same-owner foreign keys remain authoritative; frontend visibility is not an
+access check.
+
 | State                                                                 | Required behavior                                                                                      |
 | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | Existing Direct data after the additive migration                     | Hosts, credentials, pins, grants and observations remain unchanged; bindings are null.                 |
