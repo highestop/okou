@@ -1123,6 +1123,39 @@ Run cache invalidations are best-effort and identifier-only. Token/SSH-grant cha
 may leave cached authority usable for the remainder of an active Run if a notice
 is missed. End those Runs when immediate revocation is required.
 
+## Integration input attachments
+
+New Feishu/Lark, Teams, Telegram, and AgentPhone trigger attachments use the
+existing canonical input asset rows and `R2_USER_ARTIFACTS_BUCKET_NAME`, as Slack
+does. Successful imports emit the existing `userMessage` file part and
+`[Web file]` prompt format; existing frontends and pinned CLIs can read them
+without a coordinated release. Provider download commands continue to accept
+their original IDs.
+
+Feishu, Telegram, and AgentPhone store the resolved prompt in their existing
+launch context. Teams adds an optional `messageFiles[].canonicalAsset` object;
+new readers fall back to the original provider reference when it is absent,
+and old readers can still resolve that retained provider reference. Both queue
+launch and active input delivery read this persisted context. No database
+migration or historical attachment backfill is required. Failed imports retain
+the canonical file part and the provider-native prompt reference, matching
+Slack. Only ready imports emit a `[Web file]` prompt.
+
+All adapters share MIME validation, streamed size enforcement, a 10-second
+per-file import timeout, and retry classification: HTTP 429/5xx and transient
+failures remain retryable; other HTTP failures and invalid/unsupported/oversized
+files do not. The general size limit is 100 MiB; Telegram retains its Bot API
+20 MiB download limit.
+
+The new adapters deduplicate across messages by user, organization, installation,
+and stable upstream file identity. Message IDs remain provenance, not identity.
+Telegram uses `file_unique_id`; Teams uses file `uniqueId` where available.
+Resources without a provider file ID use a hash of the full resource URL, so
+unrelated attachments with the same message-local attachment number cannot
+collide. Slack retains its existing user/file-ID identity, including existing
+canonical asset rows. This does not deduplicate equal bytes under distinct
+upstream resource identities.
+
 ## Testing Expectations
 
 Tests should cover cross-version behavior when a change touches a deployment
