@@ -5,6 +5,45 @@ normalization. Read the relevant section before changing the addon or its pinned
 mitmproxy/wsproto dependencies. See the [testing guide](testing/mitm-addon-testing.md)
 for environment setup, commands, and executable coverage.
 
+## Gmail send restriction
+
+For registered sandbox requests, trusted authority validation and the existing
+browser passthrough run first. The addon then rejects non-browser Gmail send
+operations before configurable firewall matching, credential resolution, or
+request streaming. Ordinary `allow` grants cannot override this local restriction.
+The browser exemption still uses the existing User-Agent heuristic; this is not
+a guarantee against clients that imitate a browser.
+
+The restriction covers `messages/send` and `drafts/send` on the normal, upload,
+and resumable-upload paths, including upload PUTs, explicit mailbox IDs, and
+encoded endpoint spellings. Gmail-host batch paths and the shared Google
+`/batch/gmail/v1` path are rejected wholesale. Use individual calls for reads and
+draft edits. Unrelated Google API paths retain their existing policy.
+Shared-host paths are also checked after bounded decoding and dot-segment
+removal, even when no configurable firewall matches. This normalization is only
+for classification; it does not rewrite the forwarded request path.
+
+Rejected requests receive a local `403` with reason `gmail_send_blocked` and a
+Gmail-compatible `error.message` so SDK callers see the actionable handoff:
+create a draft through the existing Gmail draft API, then run the existing
+`okou mail link <gmail-draft-id>` command and return the review URL for the user
+to review and send. Reuse or update an existing draft when recovering from a
+blocked send. The response uses the same instructions in every environment.
+No CLI command is added or changed by this restriction.
+The session-authenticated API review/send path remains outside this addon guard.
+
+Both request hooks share the restriction. The header hook must not install a
+stream or resolve credentials for a rejected flow; the request hook produces the
+local response after normal buffering. A local response is not a promise to stop
+receiving the client's body immediately. Existing request framing and cleanup
+remain in force.
+
+Addon source is embedded in Runner, so old Runner instances must be replaced
+or drained for enforcement. The handoff uses an existing CLI command and needs
+no CLI rollout. No API, catalog, database, or Runner wire-format migration is
+required. `tests/test_gmail_send.py` exercises both request hooks, the browser
+exemption, and the existing draft/review handoff instructions.
+
 ## Runner-private control and readiness
 
 Runner and its embedded addon ship together. `okou_control_socket_dir` selects
