@@ -237,6 +237,22 @@ Current link-backed card patterns include:
 
 Recognized billing-plan links render as rich upgrade cards.
 
+On eligible assistant-message lines, each action link is recognized independently
+even when another action or an ordinary link shares the line. Explanatory prose,
+formatting, and ordinary links stay in place; action-link labels stay in the
+sentence and the cards follow it in source order. A standalone action still
+renders only its card. Raw action destinations are removed from retained prose,
+including invalid actions that render as unavailable. Code spans, fenced and
+indented code, image destinations, and Markdown table rows remain content.
+Every action retains its own origin and chat-context validation.
+Bare action URLs stop before adjacent prose punctuation, and retained labels
+stay literal text or keep their original inline formatting. For indented or
+quoted content, Markdown block tokens distinguish code from nested list prose;
+indentation by itself does not disable an action.
+Blocks containing a multiline code span are recognized together, so URLs inside
+the span remain code while real actions beside it follow the intact block.
+Existing character references in retained link labels keep their displayed text.
+
 Artifact recognition does not choose its presentation. After Markdown parsing,
 each supported artifact `<a>` or `<img>` node registers its URL in the owning
 thread's artifact registry and receives the same `ArtifactSignals` object as
