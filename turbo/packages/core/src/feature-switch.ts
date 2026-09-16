@@ -63,7 +63,11 @@ const FEATURE_SWITCHES: Record<FeatureSwitchKey, FeatureSwitch> = {
     description:
       "Templates compiled from a file the user uploaded, with their own catalog.",
     enabled: false,
-    enabledOrgIdHashes: STAFF_ORG_ID_HASHES,
+    // Narrowed from the staff org to the maintainer while nothing in the
+    // product publishes a row: the API route exists, but no upload surface
+    // calls it yet, so everyone else would only ever see the empty panel.
+    enabledUserHashes: ["032a75d8"], // Bingjie's account, including API contexts without email
+    enabledEmailHashes: ["6490c77f"], // bingjie@okou.ai
   },
   [FeatureSwitchKey.ComposerTaskChips]: {
     maintainer: "bingjie@okou.ai",
