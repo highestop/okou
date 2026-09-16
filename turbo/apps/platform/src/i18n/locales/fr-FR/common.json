@@ -2103,7 +2103,7 @@
     },
     "newChat": "Nouvelle discussion",
     "origins": {
-      "agentphone": "AgentPhone",
+      "agentphone": "iMessage",
       "feishu": "Feishu",
       "github": "GitHub",
       "lark": "Lark",
