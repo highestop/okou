@@ -6391,6 +6391,10 @@
     "resetHelp": "Only reset after independently verifying the new server identity. The next connection will trust and learn a new host key.",
     "retry": "Retry",
     "save": "Save",
+    "saveRecovery": {
+      "resourceIdConflict": "This resource ID cannot be used. Close and reopen the form to try again.",
+      "uncertain": "We couldn't confirm whether your changes were saved. Retry the same save, or close and check the list before adding again."
+    },
     "summary_one": "{{count}} host configured",
     "summary_other": "{{count}} hosts configured",
     "title": "SSH hosts",
