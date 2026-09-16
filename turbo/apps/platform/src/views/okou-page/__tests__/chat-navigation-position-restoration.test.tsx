@@ -470,21 +470,20 @@ describe("with a measurable thread viewport", () => {
     );
     initialGeometry.setViewportHeight(viewportHeight);
     fireEvent.resize(window);
+    await waitFor(() => {
+      expect(initialGeometry.atBottom()).toBeTruthy();
+    });
+    await chooseReadingPosition(initialGeometry, targetText);
+    expect(initialGeometry.atBottom()).toBeFalsy();
     return { initialGeometry, targetText, user, viewportHeight };
   }
   let preparedScenario: Awaited<ReturnType<typeof prepareScenario>>;
   beforeEach(async () => {
     preparedScenario = await prepareScenario();
   });
-  it("restore the reading position during keyboard thread navigation", async () => {
-    const { initialGeometry, targetText, user, viewportHeight } =
-      preparedScenario;
-    await waitFor(() => {
-      expect(initialGeometry.atBottom()).toBeTruthy();
-    });
-    await chooseReadingPosition(initialGeometry, targetText);
-    expect(initialGeometry.atBottom()).toBeFalsy();
 
+  it("restore the reading position during keyboard thread navigation", async () => {
+    const { targetText, user, viewportHeight } = preparedScenario;
     threadSection(KEYBOARD_CURRENT_THREAD_ID).focus();
     expect(threadSection(KEYBOARD_CURRENT_THREAD_ID)).toHaveFocus();
     await user.keyboard("{Control>}{Shift>}{ArrowUp}{/Shift}{/Control}");

@@ -81,14 +81,8 @@ describe.each(["settings", "system"] as const)(
       });
       const image = await screen.findByRole("img", { name: "Diagram" });
       const source = image.getAttribute("src");
-      return { media, source };
-    }
-    let preparedScenario: Awaited<ReturnType<typeof prepareScenario>>;
-    beforeEach(async () => {
-      preparedScenario = await prepareScenario();
-    });
-    it("preserves the complete scenario", async () => {
-      const { media, source } = preparedScenario;
+      let settingsDialog: HTMLElement | undefined;
+      let darkButton: HTMLElement | undefined;
       expect(getButtonByName("Expand diagram")).toBeEnabled();
 
       if (entry === "settings") {
@@ -96,15 +90,28 @@ describe.each(["settings", "system"] as const)(
         click(within(rail).getByLabelText("Test User"));
         const menu = await screen.findByRole("menu");
         click(within(menu).getByText("Settings"));
-        const settings = await screen.findByRole("dialog", {
+        settingsDialog = await screen.findByRole("dialog", {
           name: "Settings",
         });
-        const dark = await waitFor(() => {
-          return getButtonByName("Dark", settings);
+        darkButton = await waitFor(() => {
+          return getButtonByName("Dark", settingsDialog);
         });
-        click(dark);
-        const settingsRemoved = waitForElementToBeRemoved(settings);
-        click(within(settings).getByLabelText("Close"));
+      }
+      return { media, source, settingsDialog, darkButton };
+    }
+    let preparedScenario: Awaited<ReturnType<typeof prepareScenario>>;
+    beforeEach(async () => {
+      preparedScenario = await prepareScenario();
+    });
+    it("keeps the same diagram available after changing the theme", async () => {
+      const { media, source, settingsDialog, darkButton } = preparedScenario;
+      if (entry === "settings") {
+        if (!settingsDialog || !darkButton) {
+          throw new Error("Expected the diagram theme settings to be ready");
+        }
+        click(darkButton);
+        const settingsRemoved = waitForElementToBeRemoved(settingsDialog);
+        click(within(settingsDialog).getByLabelText("Close"));
         await settingsRemoved;
       } else {
         act(() => {
