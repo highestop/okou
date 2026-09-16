@@ -63,7 +63,6 @@ export enum FeatureSwitchKey {
   OpenRouterUsRouting = "openRouterUsRouting",
   LangfuseTrace = "_langfuseTrace",
   IntroVideo = "introVideo",
-  ChatTranslation = "chatTranslation",
   ComposerTaskChips = "composerTaskChips",
   ComposerImageAnnotation = "composerImageAnnotation",
   GradientColorThemes = "gradientColorThemes",
