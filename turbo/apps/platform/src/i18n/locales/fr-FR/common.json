@@ -1792,6 +1792,7 @@
       "viewDetails": "Voir les détails"
     },
     "composer": {
+      "add": "Ajouter",
       "agentSuggestions": "Agents",
       "configureModel": "Configurer le modèle",
       "create": {

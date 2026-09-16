@@ -1763,6 +1763,7 @@
       "viewDetails": "विवरण देखें"
     },
     "composer": {
+      "add": "जोड़ें",
       "agentSuggestions": "एजेंट",
       "configureModel": "मॉडल कॉन्फ़िगर करें",
       "create": {

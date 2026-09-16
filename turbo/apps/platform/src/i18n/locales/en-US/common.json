@@ -1763,6 +1763,7 @@
       "viewDetails": "View details"
     },
     "composer": {
+      "add": "Add",
       "agentSuggestions": "Agents",
       "configureModel": "Configure model",
       "create": {

@@ -1792,6 +1792,7 @@
       "viewDetails": "Visualizza dettagli"
     },
     "composer": {
+      "add": "Aggiungi",
       "agentSuggestions": "Agenti",
       "configureModel": "Configura modello",
       "create": {

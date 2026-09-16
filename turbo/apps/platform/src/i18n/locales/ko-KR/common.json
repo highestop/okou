@@ -1760,6 +1760,7 @@
       "viewDetails": "세부 정보 보기"
     },
     "composer": {
+      "add": "추가",
       "agentSuggestions": "에이전트",
       "configureModel": "모델 구성",
       "create": {
