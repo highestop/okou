@@ -347,7 +347,7 @@ function buildIntegrationToolsPrompt(
     "A `[Web file]` block from any integration refers to a file stored by Okou. Use `okou web download-file -h` to download it with its `[ID]`.",
     "Localhost URLs, local dev server ports, and processes started inside the agent runtime are generally only reachable inside that runtime; users cannot rely on them as a way to view the result directly.",
     "Local dev servers are useful for agent-side verification, but they are not by themselves a user-facing deliverable.",
-    "For static web artifacts, Okou provides `okou host <dir> --site <slug> [--spa]` to publish a directory containing `index.html` to a public URL that users can open; for HTML presentations, include `--artifact-kind presentation-html`.",
+    "For static web artifacts, Okou provides `okou host <dir> --site <slug> [--spa]` to publish a directory containing `index.html` to a hosted URL that users can open; with private artifacts enabled, this is an owner-only artifact reference. For HTML presentations, include `--artifact-kind presentation-html`.",
     "For apps or services that require a long-running backend, database, worker, external service, or framework-specific runtime, `okou host` may not be sufficient; use the project's own deployment workflow or hosting platform to make the change visible to users.",
     ...(deliveryFormatGuidanceEnabled
       ? [
@@ -429,6 +429,7 @@ function buildIntegrationToolsPrompt(
 }
 
 function buildAgentToolsPrompt(args: {
+  readonly privateArtifactsEnabled: boolean;
   readonly feishuPlatform: FeishuPlatform | undefined;
   readonly sshEnabled: boolean;
   readonly triggerSource: TriggerSource;
@@ -443,6 +444,12 @@ function buildAgentToolsPrompt(args: {
     "# Agent Tools",
     `You have access to the Okou CLI. Run commands with: \`${okouCliCommand} <command>\``,
     "- Discover available commands: `okou --help`.",
+    ...(args.privateArtifactsEnabled
+      ? [
+          "- Private artifact sharing: for `/artifacts/xxx` links, only the owner can change visibility; use `okou artifact --help`.",
+          "- Private artifact downloads: to download files referenced by `/artifacts/xxx`, use `okou artifact download -h`.",
+        ]
+      : []),
     ...(args.sshEnabled
       ? [
           "- SSH: use `okou ssh host list --json` to find hosts, `okou ssh exec` to run commands, `okou ssh session` for persistent sessions, and `okou ssh upload` / `okou ssh download` for files. Read `okou ssh --help` and the relevant subcommand's `--help` before use.",
@@ -588,6 +595,7 @@ function buildCurrentUserPrompt(userInfo: UserInfo): string {
 }
 
 function buildAppendSystemPrompt(args: {
+  readonly privateArtifactsEnabled: boolean;
   readonly sshEnabled: boolean;
   readonly agent: AgentRunRecord;
   readonly userInfo: UserInfo;
@@ -603,6 +611,7 @@ function buildAppendSystemPrompt(args: {
     identity,
     buildExecutionTimeLimitPrompt(),
     buildAgentToolsPrompt({
+      privateArtifactsEnabled: args.privateArtifactsEnabled,
       feishuPlatform: args.userInfo.feishuPlatform,
       sshEnabled: args.sshEnabled,
       triggerSource: args.triggerSource,
@@ -775,6 +784,7 @@ function agentRunOrigin(args: {
 }
 
 function createRunBody(args: {
+  readonly privateArtifactsEnabled: boolean;
   readonly sshEnabled: boolean;
   readonly body: AgentRunCreateBody;
   readonly agent: AgentRunRecord;
@@ -790,6 +800,7 @@ function createRunBody(args: {
 }) {
   const triggerSource = args.triggerSource ?? "web";
   const baseAppendSystemPrompt = buildAppendSystemPrompt({
+    privateArtifactsEnabled: args.privateArtifactsEnabled,
     sshEnabled: args.sshEnabled,
     agent: args.agent,
     userInfo: args.userInfo,
@@ -990,6 +1001,10 @@ function buildCreateAgentRunArgs(args: {
     userId: command.auth.userId,
     orgId: command.auth.orgId,
     body: createRunBody({
+      privateArtifactsEnabled: isFeatureEnabled(
+        FeatureSwitchKey.PrivateArtifacts,
+        args.featureSwitchContext,
+      ),
       sshEnabled: isFeatureEnabled(
         FeatureSwitchKey.SshAccess,
         args.featureSwitchContext,

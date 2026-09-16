@@ -33,7 +33,10 @@ import {
   generateArtifactPreviewUrl,
   putHostedSitesS3Object,
 } from "../external/s3";
-import { privateArtifactRecord } from "./private-artifact-storage.service";
+import {
+  privateArtifactRecord,
+  privateArtifactUrl,
+} from "./private-artifact-storage.service";
 import { createPrivateHostedPreview$ } from "./private-hosted-preview.service";
 import { prepareArtifactShareAliases$ } from "./artifact-share-alias.service";
 
@@ -119,6 +122,10 @@ function ownedShareTarget(
       }
       return {
         targetId: file.id,
+        ownerUrl: new URL(
+          privateArtifactUrl(file.id, file.filename, file.metadata),
+          env("APP_URL"),
+        ).href,
         publicBrand: file.publicBrand,
         candidateVersion: null,
         target: {
@@ -153,6 +160,7 @@ function ownedShareTarget(
     const deployment = row.deployment;
     return {
       targetId: deployment.siteId,
+      ownerUrl: new URL(deployment.artifactUrl, env("APP_URL")).href,
       publicBrand: deployment.publicBrand,
       candidateVersion: deployment.deploymentVersion,
       target: {
@@ -255,11 +263,13 @@ function shortShareUrl(policy: ArtifactSharePolicy | null): string | null {
 function shareStatus(args: {
   readonly policy: ArtifactSharePolicy | null;
   readonly organization: ArtifactShareStatus["organization"];
+  readonly ownerUrl: string;
   readonly candidateVersion: number | null;
 }): ArtifactShareStatus {
   const policy = args.policy;
   const shortUrl = shortShareUrl(policy);
   return {
+    ownerUrl: args.ownerUrl,
     shareId: policy?.shareId ?? null,
     audience: policy?.audience ?? "private",
     organization: args.organization,
@@ -345,6 +355,7 @@ export const readArtifactShare$ = command(
     return shareStatus({
       policy: stored?.policy ?? null,
       organization: { id: args.orgId, name: member.organization.name },
+      ownerUrl: candidate.ownerUrl,
       candidateVersion: candidate.candidateVersion,
     });
   },
@@ -526,6 +537,7 @@ export const updateArtifactShare$ = command(
     return shareStatus({
       policy,
       organization: { id: args.orgId, name: member.organization.name },
+      ownerUrl: candidate.ownerUrl,
       candidateVersion: candidate.candidateVersion,
     });
   },

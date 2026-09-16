@@ -1127,6 +1127,37 @@ describe("CHAIN-RUN: entitled run lifecycle through runner and sandbox webhooks"
     ).not.toContain(`/home/user/.claude/skills/${INTRO_VIDEO_SKILL_NAME}`);
   });
 
+  it("advertises artifact sharing only when private artifacts are enabled", async () => {
+    const api = createRunsApi(context);
+    const connectors = createConnectorBddApi(context);
+    const { actor, agentId } = await entitledRunActor();
+    for (const enabled of [false, true]) {
+      await connectors.updateFeatureSwitches(actor, {
+        [FeatureSwitchKey.PrivateArtifacts]: enabled,
+      });
+      const created = await api.createRun(actor, {
+        agentId,
+        prompt: "share the report with my organization",
+        modelProvider: "anthropic-api-key",
+      });
+      const run = await api.readRun(actor, created.runId);
+      const prompt = run.appendSystemPrompt ?? "";
+      expect(
+        prompt
+          .split("\n")
+          .includes(
+            "- Private artifact sharing: for `/artifacts/xxx` links, only the owner can change visibility; use `okou artifact --help`.",
+          ),
+      ).toBe(enabled);
+      expect(
+        prompt.includes(
+          "- Private artifact downloads: to download files referenced by `/artifacts/xxx`, use `okou artifact download -h`.",
+        ),
+      ).toBe(enabled);
+      await api.requestCancelRun(actor, created.runId, [200]);
+    }
+  });
+
   it("always advertises presentation screenshots", async () => {
     const api = createRunsApi(context);
     const { actor, agentId } = await entitledRunActor();
@@ -12979,7 +13010,7 @@ describe("RUN-01: agent runner context, queue promotion, and skills", () => {
       "For one known public URL when you only need page content, prefer `okou scrape <url> --format markdown`",
       "use `agent-browser` when you need browser state, authentication, JavaScript, screenshots, or interaction",
       "Local dev servers are useful for agent-side verification",
-      "For static web artifacts, Okou provides `okou host <dir> --site <slug> [--spa]` to publish a directory containing `index.html` to a public URL that users can open; for HTML presentations, include `--artifact-kind presentation-html`",
+      "For static web artifacts, Okou provides `okou host <dir> --site <slug> [--spa]` to publish a directory containing `index.html` to a hosted URL that users can open; with private artifacts enabled, this is an owner-only artifact reference. For HTML presentations, include `--artifact-kind presentation-html`",
       "For apps or services that require a long-running backend, database, worker, external service, or framework-specific runtime",
       "for HTML presentations, include `--artifact-kind presentation-html`; run `okou host --help`",
       "okou connector status <slug>",
