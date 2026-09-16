@@ -470,6 +470,13 @@
       "when": 1789528865735,
       "tag": "1144_get_started_rewards",
       "breakpoints": true
+    },
+    {
+      "idx": 1145,
+      "version": "7",
+      "when": 1789540183977,
+      "tag": "1145_pi_durable_sandbox_objects",
+      "breakpoints": true
     }
   ]
 }
