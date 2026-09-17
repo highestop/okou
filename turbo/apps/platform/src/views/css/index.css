@@ -177,6 +177,15 @@
      `border-(length:--border-width-illustration*)`. */
   --border-width-illustration: 1px;
   --border-width-illustration-marker: 1.5px;
+
+  /* The weight an image annotation's box outline is drawn at. Annotation ink is
+     the user's drawing on top of a screenshot, so like an illustration stroke it
+     is part of the picture rather than product chrome, and it does not follow
+     the shared hairline. Registered here because the mark's colour is a runtime
+     value: the component composes the colour, the system owns the weight. The
+     numbered pin beside it is chrome laid over artwork and takes the shared
+     `--border-width-emphasis` instead. */
+  --border-width-annotation-box: 2.5px;
 }
 
 /* Palette previews keep the fixed 135deg/52% sRGB blend in Light and Dark.

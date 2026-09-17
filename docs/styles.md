@@ -106,15 +106,21 @@ registry. A runtime value that is genuinely computed by the component may use a
 narrowly named custom property as data, while its visual semantics still come
 from Tailwind utilities and registered tokens.
 
+The product draws lines at two weights, and a component picks between them by
+what the line is doing, not by which state it is in.
+
 One hairline serves the whole product. `--default-border-width` in the shared
 `@theme` is 0.5px, and Tailwind's bare `border`, `border-t`, `border-x`,
 `divide-y`, and their siblings all read it, so a component asks for "a border"
 and the system decides how thick it is. Components must not hand-write a width:
 an arbitrary bracketed width, or a literal width inside a `style` prop, is a
 second registry for a decision this token already owns, and the two round to
-different device-pixel counts wherever the device scale is odd. `border-0` and
-the deliberate emphasis widths such as `border-2` stay available, because they
-express a different decision rather than a competing value for the same one.
+different device-pixel counts wherever the device scale is odd.
+`no-restricted-syntax` in `eslint.style.config.mjs` rejects both, and the three
+files that legitimately spell a width turn the rule off by name with their own
+reason: two pin a whole pixel against the repaint a fractional border shows when
+a box's content resolves, and the 404 page's `border-[24px]` is a mat around
+artwork rather than a border on anything.
 
 This is a real hairline, not a rounding no-op. On a 2x display 0.5px paints one
 device pixel where 1px paints two, so every bare border carries half the ink it
@@ -123,6 +129,51 @@ pixels. Colour has to carry what the width no longer does, which is why
 `--border` sits one stop darker than the surface ramp's lightest step:
 `gray-200` was calibrated for a 1px line and stops reading on a near-white card
 at half the thickness.
+
+`--border-width-emphasis` is 1.5px, and it is for one thing: a line drawn
+against artwork, where the hairline would read as part of the picture instead of
+as chrome. A boundary around something that already reads takes the hairline.
+Today that rule covers three kinds of line. The first is selection on a tile
+whose content is a picture — a chart silhouette, an avatar look, a template
+preview — where selection cannot be carried by a fill, because the artwork owns
+the interior, nor by the label, because it sits outside the box. The edge is all
+that is left, and a hairline cannot do it: one device pixel appearing at the rim
+of a filled tile reads as an antialiasing artifact, not as a state. The second is
+a mark laid over artwork that needs a ring to stay legible against whatever is
+behind it, such as an annotation pin or a count badge on a preview. The third is
+a ring that marks artwork as the product's own and actionable, such as the
+account avatar's editable ring in `settings-tab.tsx`, which carries no selected
+state because it is never not emphasized. Consumers read it through
+`border-(length:--border-width-emphasis)`, the same way the surface and
+illustration widths are read.
+
+1.5px is not a new value. It is what `--stroke-width-icon` already draws at, so
+an emphasized edge and an icon stroke are one weight expressed in two units —
+the icon token is unitless because it resolves in SVG user space.
+
+In the tile case this is a width for the whole surface, not for its selected
+state. **A selection must never change an element's metrics**, so the resting
+branch carries the same width in `border-transparent` and only the colour is
+stateful; a token named for the state would invite `selected &&
+"border-[1.5px]"`, which reflows the tile and shifts its siblings. This is the
+same rule that keeps a selected chip's font weight on its base class, and the
+generalization of "Keep the border width constant across interaction states"
+below from focus to selection.
+
+Everything that is text plus a fill — pills, chips, menu rows, table rows, plan
+cards — keeps the shared hairline in both states and recolours it to
+`border-primary`. Selection is never a ring: `ring-*` belongs to the focus
+indicator, which the large majority of its usages already spell as
+`focus-visible:ring-2`, and a selected row that also draws a ring gives a
+keyboard user two rings fighting on one element. Selection owns the border,
+focus owns the ring. A ring on an element that has no selected state is not a
+selection ring and is unaffected — the account avatar's halo stays, because
+nothing about it changes when the user picks something.
+
+`border-0` stays available, and so does a literal `border-2` for geometry that is
+not a boundary at all — a dashed drop target, a spinner's ring, the inset that
+shapes a switch track. Those express a different decision rather than a competing
+value for the same one. Selection is not on that list.
 
 A third token covers the case neither of those can. `--border` and `--divider`
 are both measured against the page canvas, and `--divider` is pinned to
@@ -682,6 +733,15 @@ for these only for a drawing whose strokes are part of the picture. They live in
 the App token layer because the onboarding diagram is their only consumer today,
 and they promote to `@okouai/ui` when a second product surface draws with them.
 Adding a third weight is a token change, not a call-site decision.
+
+`--border-width-annotation-box` (2.5px) sits in the same App layer for the same
+reason: an image annotation is the user's drawing on top of a screenshot, so its
+outline is part of the picture rather than product chrome. It is registered
+despite being read from a `style` prop, because the mark's colour is a genuine
+runtime value — the component composes the colour, the system still owns the
+weight. The numbered pin beside it is chrome laid over artwork, not a drawing,
+so it takes the shared `--border-width-emphasis`. Do not collapse the two: a
+drawing tool's weights must be free to move without touching product chrome.
 
 The first consumers are the onboarding diagram's tiles: the icon box, the
 connector stack items, the overflow badge and the two action cards take
