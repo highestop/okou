@@ -589,8 +589,20 @@
       "videoLabel": "Pratinjau video untuk {{filename}}"
     },
     "sharing": {
-      "shareOrganization": "Bagikan ke organisasi",
-      "sharePublic": "Bagikan ke publik"
+      "accessLabel": "Siapa yang dapat mengakses",
+      "copyLink": "Salin tautan",
+      "loadFailed": "Gagal memuat izin",
+      "loadingPermissions": "Memuat izin",
+      "onlyMe": "Hanya saya",
+      "onlyMeDescription": "Hanya Anda yang dapat melihat artefak ini",
+      "organization": "Organisasi",
+      "organizationDescription": "Siapa pun di {{organization}} yang memiliki tautan",
+      "permissionsUpdated": "Akses diperbarui",
+      "publicAccess": "Akses publik",
+      "publicDescription": "Siapa pun yang memiliki tautan dapat melihat",
+      "retry": "Coba lagi",
+      "savedAutomatically": "Perubahan disimpan otomatis",
+      "saving": "Menyimpan…"
     },
     "sidebar": {
       "openSharedConversation": "Buka percakapan yang dibagikan",
@@ -902,8 +914,7 @@
     "toasts": {
       "copyLinkFailed": "Gagal menyalin tautan",
       "downloadFailed": "Gagal mengunduh",
-      "linkCopied": "Tautan disalin",
-      "sharing": "Membagikan…"
+      "linkCopied": "Tautan disalin"
     },
     "viewer": {
       "continuePrompt": "Bantu saya mengerjakan artefak ini: {{url}}",

@@ -608,8 +608,20 @@
       "videoLabel": "Vista previa de vídeo para {{filename}}"
     },
     "sharing": {
-      "shareOrganization": "Compartir con la organización",
-      "sharePublic": "Compartir públicamente"
+      "accessLabel": "Quién tiene acceso",
+      "copyLink": "Copiar enlace",
+      "loadFailed": "No se pudieron cargar los permisos",
+      "loadingPermissions": "Cargando permisos",
+      "onlyMe": "Solo yo",
+      "onlyMeDescription": "Solo tú puedes ver este artefacto",
+      "organization": "Organización",
+      "organizationDescription": "Cualquier persona de {{organization}} con el enlace",
+      "permissionsUpdated": "Acceso actualizado",
+      "publicAccess": "Acceso público",
+      "publicDescription": "Cualquier persona con el enlace puede verlo",
+      "retry": "Reintentar",
+      "savedAutomatically": "Los cambios se guardan automáticamente",
+      "saving": "Guardando…"
     },
     "sidebar": {
       "openSharedConversation": "Abrir conversación compartida",
@@ -922,8 +934,7 @@
     "toasts": {
       "copyLinkFailed": "No se pudo copiar el enlace",
       "downloadFailed": "Descarga fallida",
-      "linkCopied": "Enlace copiado",
-      "sharing": "Compartiendo…"
+      "linkCopied": "Enlace copiado"
     },
     "viewer": {
       "continuePrompt": "Ayúdame a trabajar con este artefacto: {{url}}",

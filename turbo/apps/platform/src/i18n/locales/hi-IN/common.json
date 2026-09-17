@@ -590,8 +590,20 @@
       "videoLabel": "{{filename}} के लिए वीडियो पूर्वावलोकन"
     },
     "sharing": {
-      "shareOrganization": "संगठन के साथ शेयर करें",
-      "sharePublic": "सार्वजनिक रूप से शेयर करें"
+      "accessLabel": "किसे ऐक्सेस है",
+      "copyLink": "लिंक कॉपी करें",
+      "loadFailed": "अनुमतियाँ लोड नहीं हो सकीं",
+      "loadingPermissions": "अनुमतियाँ लोड हो रही हैं",
+      "onlyMe": "केवल मैं",
+      "onlyMeDescription": "केवल आप यह आर्टिफ़ैक्ट देख सकते हैं",
+      "organization": "संगठन",
+      "organizationDescription": "{{organization}} में लिंक वाला कोई भी व्यक्ति",
+      "permissionsUpdated": "पहुँच अपडेट हो गई",
+      "publicAccess": "सार्वजनिक ऐक्सेस",
+      "publicDescription": "लिंक वाला कोई भी व्यक्ति देख सकता है",
+      "retry": "फिर से कोशिश करें",
+      "savedAutomatically": "बदलाव अपने-आप सेव होते हैं",
+      "saving": "सेव हो रहा है…"
     },
     "sidebar": {
       "openSharedConversation": "साझा बातचीत खोलें",
@@ -903,8 +915,7 @@
     "toasts": {
       "copyLinkFailed": "लिंक कॉपी करने में विफल",
       "downloadFailed": "डाउनलोड विफल रहा",
-      "linkCopied": "लिंक कॉपी किया गया",
-      "sharing": "साझा किया जा रहा है…"
+      "linkCopied": "लिंक कॉपी किया गया"
     },
     "viewer": {
       "continuePrompt": "इस आर्टिफ़ैक्ट पर काम करने में मेरी मदद करें: {{url}}",
