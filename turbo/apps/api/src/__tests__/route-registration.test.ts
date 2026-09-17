@@ -1,6 +1,7 @@
 import { morningBriefChatCollectionPreviewContract } from "@okouai/api-contracts/contracts/morning-brief-chat-collection-preview";
 import { morningBriefCollectionPreviewContract } from "@okouai/api-contracts/contracts/morning-brief-collection-preview";
 import { morningBriefGenerationPreviewContract } from "@okouai/api-contracts/contracts/morning-brief-generation-preview";
+import { morningBriefGithubCollectionContract } from "@okouai/api-contracts/contracts/morning-brief-github-collection";
 import { morningBriefGmailCollectionPreviewContract } from "@okouai/api-contracts/contracts/morning-brief-gmail-collection-preview";
 
 import { ROUTES } from "../signals/route";
@@ -9,6 +10,7 @@ import { morningBriefChatCollectionPreviewRoutes } from "../signals/routes/morni
 import { morningBriefCollectionPreviewRoutes } from "../signals/routes/morning-brief-collection-preview";
 import { morningBriefGenerationPreviewRoutes } from "../signals/routes/morning-brief-generation-preview";
 import { morningBriefGmailCollectionPreviewRoutes } from "../signals/routes/morning-brief-gmail-collection-preview";
+import { morningBriefPreviewGithubCollectionRoutes } from "../signals/routes/morning-brief-preview-github-collection";
 
 describe("API route registrations", () => {
   // Hono keeps both registrations for a duplicated path and answers with the
@@ -76,5 +78,27 @@ describe("API route registrations", () => {
         );
       }),
     ).toStrictEqual([entry]);
+  });
+
+  // And for the GitHub priorities preview, the reader's second collection
+  // consumer: the deployed table must hold this module's own entry object, so
+  // the behaviour suite that drives that handler through the exported slice is
+  // talking about the endpoint an operator actually reaches.
+  it("registers the Morning Brief GitHub collection preview an operator invokes", () => {
+    const [entry, ...extra] = morningBriefPreviewGithubCollectionRoutes;
+    expect(extra).toHaveLength(0);
+    expect(entry?.route).toBe(morningBriefGithubCollectionContract.collect);
+    expect(ROUTES).toContain(entry);
+    expect(
+      ROUTES.filter((registered) => {
+        return (
+          registered.route.path ===
+          morningBriefGithubCollectionContract.collect.path
+        );
+      }),
+    ).toStrictEqual([entry]);
+    expect(morningBriefGithubCollectionContract.collect.path).toBe(
+      "/api/morning-brief/preview/github-collection",
+    );
   });
 });
