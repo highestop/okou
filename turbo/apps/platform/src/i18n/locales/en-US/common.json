@@ -5640,9 +5640,12 @@
         "codexDescription": "Connect with Codex device login for Codex-backed model routes.",
         "codexTitle": "ChatGPT (Codex)",
         "description": "Used only in your runs, with your own credentials.",
+        "disconnectAccount": "Disconnect account",
+        "disconnectDescription": "This removes the account from Okou. It won’t cancel your subscription with the provider.",
+        "disconnecting": "Disconnecting…",
+        "disconnectTitle": "Disconnect {{account}}?",
         "noAccounts": "No accounts connected.",
         "reconnectAccount": "Reconnect",
-        "removeAccount": "Remove",
         "sectionTitle": "Personal",
         "status": {
           "connected": "Connected",
@@ -5769,7 +5772,7 @@
         "codexTitle": "ChatGPT session needs reconnection"
       },
       "toasts": {
-        "accountRemoved": "Account removed",
+        "accountDisconnected": "Account disconnected",
         "accountSwitched": "Active account switched",
         "disconnected": "{{provider}} disconnected",
         "policiesUpdated": "Model provider settings updated",
