@@ -75,18 +75,40 @@ installation, schedule and Agent, and the Slack workspace and user.
   A live lease is never stolen and a completed occurrence is never re-collected.
 - **Finite leases and attempts.** A lease lasts 60 seconds; an occurrence allows
   3 attempts and stays claimable for 24 hours after it was first admitted.
-- **Frozen binding.** A retry may only reuse an occurrence whose window,
+  Equality with either deadline is already elapsed: an occurrence is refused at
+  exactly `created_at + 24 hours`, not a millisecond later. A re-claim never
+  rewrites `created_at`, so the lifetime measures the logical occurrence rather
+  than its latest attempt.
+- **Frozen binding.** No existing occurrence is reused unless its window,
   timezone, membership generation, installation, schedule, Agent and Slack
-  binding are all unchanged. A remove and rejoin issues a new membership id, so
-  it cannot revive the old occurrence.
+  binding are all unchanged. This is checked before the row's status is even
+  considered, so a completed, failed or running occurrence admitted under an
+  older binding answers `binding-changed` rather than being reused, replaced or
+  silently swapped for a replacement slot. A remove and rejoin issues a new
+  membership id, so it cannot revive the old occurrence.
 - **Bounded retry.** A rate-limited attempt records the provider's own
   `Retry-After`; the next explicit invocation before that instant is refused.
   This request never sleeps, and there is no inline retry loop.
+- **Commit-time admission.** Waiting for a database lock can outlast a
+  60-second lease, so every lease, retry and lifetime comparison reads the clock
+  _after_ the transition's own waits. Claiming and finalizing take erasure
+  admission, then the member row, then the occurrence row with `FOR UPDATE`, and
+  only then sample the instant they decide against. A request timestamp, a
+  transaction-start `now()` or a statement clock read before a row wait is not
+  that instant. One case is deliberately narrower: when no occurrence row exists
+  yet, the first attempt's lease clock is read before its own `INSERT`, which
+  can still wait — on the parent's foreign-key lock, or on a concurrent
+  claimant's in-doubt tuple. Any such wait only shortens that first lease, and
+  the executor rechecks `collectionLeaseHeld` before the first provider call, so
+  an already-elapsed first claim reads no source. The post-wait clock claim
+  applies to the existing-row transitions, not to that initial insert.
 - **Guarded completion.** Finalization is one conditional update matching the
   exact occurrence, attempt, lease token, membership generation, running status
-  and a lease deadline strictly in the future. Equality with the deadline is
-  already expired. A stale worker therefore cannot overwrite a newer claimant,
-  and its bundle is discarded rather than returned.
+  and a lease deadline strictly after that freshly sampled instant. Equality
+  with the deadline is already expired. Because the transaction already holds
+  the row, the update cannot queue again between the check and the write. A
+  stale worker therefore cannot overwrite a newer claimant, and an attempt whose
+  lease elapsed while it waited has its bundle discarded rather than accepted.
 - **No durable body.** Terminal success is metadata about a collection, never a
   checkpoint of one. A duplicate invocation of a completed occurrence makes no
   provider call and answers `already-completed` with an explicit `bundle: null`.
@@ -107,25 +129,70 @@ lifecycle deletion that invalidates the installation.
 
 Claiming and finalizing both take erasure admission first with
 `assertErasureSubjectWritable`, held through `COMMIT`, then lock and recheck that
-member row with `FOR KEY SHARE`. Neither ever creates the parent. Both commit
-orders are therefore closed:
+member row with `FOR KEY SHARE`. Neither ever creates the parent.
 
-- A claim that commits first holds `FOR KEY SHARE` while cleanup's member-row
-  removal queues behind it, and the row is cascaded away on commit.
-- A cleanup that commits first leaves no parent, so the claim refuses.
+That lock orders two transactions but does not survive either of them, and the
+parent is deleted only at the very end of each cleanup. The durable half of the
+boundary is the member row's own `morning_brief_collection_revoked_at` stamp.
+Every cleanup path writes it in the **first transaction it commits**, together
+with the run-authority revocation and the occurrence delete it already performs:
 
-Cleanup additionally revokes this state explicitly in the earliest transaction
-each path already commits — the membership run-authority revocation, and the
-first step of Clerk user and organization deletion — so an owner loses
-collection ownership before the rest of their state is torn down. User and
-organization final cleanup are unchanged and remain the last guarantee. A
-cleanup that wins before finalization causes the bundle to be discarded and
-leaves nothing that could later complete or resurrect. Other owners are
-untouched.
+| Path         | First committed revocation                              |
+| ------------ | ------------------------------------------------------- |
+| Membership   | `cleanupOrgMemberResources`'s run-authority transaction |
+| User         | the `user.deleted` run-cancellation transaction         |
+| Organization | the `organization.deleted` run-cancellation transaction |
+
+That transaction takes `FOR UPDATE` on the member rows in scope before stamping
+them, which conflicts with the claimant's `FOR KEY SHARE`, so the two can never
+decide at the same time. The separate lock is required, not stylistic: an
+`UPDATE` of a non-key column only acquires `FOR NO KEY UPDATE`, which does _not_
+conflict with `FOR KEY SHARE`, so collapsing the two statements would let a
+claim read an unstamped row and commit alongside the revocation. Both orders are
+otherwise closed, and neither depends on the foreign-key cascade:
+
+- A claim that commits first is seen by the revoking transaction, which deletes
+  its occurrence. Cleanup's later member-row removal is the final backstop.
+- A cleanup that commits first leaves the stamp, so the claim refuses — even
+  when the claim's external membership answer was resolved before revocation,
+  even when the stamping transaction found no occurrence to delete, and even
+  though the parent row still exists for the rest of the cleanup.
+
+Only the member row's own deletion clears the stamp, so a member who leaves and
+rejoins starts from a fresh row and a new membership generation. A cleanup that
+fails after that first commit leaves the owner fenced out of collection, which
+is the intended fail-closed direction.
+
+That deletion is also why the stamp alone is not the whole fence. Once a cleanup
+has run to completion, an ordinary preference write — the same one a rejoining
+member's client performs — inserts a parent with no stamp on it. An admission
+whose external membership answer was resolved before the cleanup would otherwise
+find that replacement perfectly writable. So the admission also carries the
+parent's `created_at`, and the claim requires it to be unchanged:
+
+- Preference upserts never rewrite `created_at`, so a live admission is
+  unaffected by ordinary timezone, theme or model writes.
+- A deleted and recreated row has a new `created_at`, so the older generation's
+  request is refused before it claims an attempt, before it reads any source,
+  and without leaving an occurrence in the rejoined member's way at that anchor.
+- It is not part of the occurrence's frozen binding, because deleting the parent
+  cascades every occurrence away: a surviving row always hangs from the
+  generation that admitted it. Other owners are untouched, and a cleanup
+  that wins before finalization causes the bundle to be discarded and leaves
+  nothing that could later complete or resurrect.
 
 **Linearization boundary.** Requests already in flight to Slack cannot be
 retracted. What revocation guarantees is that no result of such a request is
-accepted, persisted or returned after the revoking transaction commits.
+accepted, persisted or returned after the revoking transaction commits. This is
+a local boundary for one owner's collection authority: a result linearized
+before cleanup may still be observed by its own caller afterwards, and no
+wall-clock guarantee is claimed against arbitrary external revocation.
+
+**Deploy order.** The stamp is migration 1154, an additive nullable column. The
+cleanup writers are unconditional and are not behind `simpleMorningBrief`, so
+the migration must ship before the API artifact that writes them; an older
+artifact simply never reads or writes the column. See
+[deployment compatibility](deployment-compatibility.md#morning-brief-collection-revocation-stamp-34860).
 
 This is explicit-invocation authority only. It certifies no autonomous scheduler
 recovery. Durable membership and materialization ownership, and global deletion
