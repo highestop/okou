@@ -3555,6 +3555,7 @@
           "sourceUnavailable": "Sumber tidak tersedia",
           "stale": "Usang",
           "unchanged": "Tidak berubah",
+          "unsupportedProtocol": "Protokol tidak didukung",
           "unsupportedSchema": "Skema tidak didukung"
         }
       },

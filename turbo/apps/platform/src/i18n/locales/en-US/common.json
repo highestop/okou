@@ -3560,6 +3560,7 @@
           "sourceUnavailable": "Source unavailable",
           "stale": "Stale",
           "unchanged": "Unchanged",
+          "unsupportedProtocol": "Unsupported protocol",
           "unsupportedSchema": "Unsupported schema"
         }
       },

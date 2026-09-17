@@ -3623,6 +3623,7 @@
           "sourceUnavailable": "Origem indisponível",
           "stale": "Desatualizado",
           "unchanged": "Sem alterações",
+          "unsupportedProtocol": "Protocolo não compatível",
           "unsupportedSchema": "Schema não compatível"
         }
       },
