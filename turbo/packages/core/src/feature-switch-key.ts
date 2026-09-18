@@ -77,4 +77,5 @@ export enum FeatureSwitchKey {
   ComposerAddMenu = "composerAddMenu",
   CustomTemplates = "customTemplates",
   DeliveryFormatGuidance = "deliveryFormatGuidance",
+  GoogleSlidesConversion = "googleSlidesConversion",
 }
