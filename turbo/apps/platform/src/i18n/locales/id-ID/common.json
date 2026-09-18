@@ -665,6 +665,7 @@
       "renameImportedTemplate": "Ganti nama templat",
       "searchConnector": "Cari templat",
       "searchConnectors": "Cari templat",
+      "selected": "Dipilih",
       "selectStyle": "Pilih gaya {{style}}",
       "selectTemplate": "Pilih template {{title}}",
       "selectVideo": "Pilih template video {{title}}",
@@ -1878,6 +1879,7 @@
         "heading": "Pilih avatar",
         "label": "Avatar",
         "none": "Tanpa avatar",
+        "noneDetail": "Hanya gaya",
         "previewLook": "Pratinjau tampilan {{name}}"
       },
       "catalog": {
@@ -1890,17 +1892,28 @@
         "cancel": "Batal"
       },
       "picker": {
-        "autoVoiceDescription": "Temukan suara yang cocok dengan konten Anda.",
+        "allPresenters": "Semua presenter",
+        "allPresentersCount": "Semua presenter ({{total}})",
+        "allVoices": "Semua suara",
+        "allVoicesCount": "Semua suara ({{total}})",
+        "autoVoiceDescription": "Suara yang cocok dengan gaya Anda",
         "avatarVoice": "Suara avatar",
         "back": "Kembali",
-        "chooseStyle": "Pilih gaya",
         "closeOptions": "Tutup opsi",
+        "done": "Selesai",
         "moreOptions": "Opsi lainnya",
         "noMatches": "Tidak ada hasil.",
+        "optionsNote": "Anda bisa mengubahnya kapan saja lewat chip di chat.",
+        "pickStyle": "Pilih gaya",
+        "reset": "Atur ulang",
+        "searchPresenters": "Cari presenter",
         "searchStyles": "Cari gaya",
-        "selectionSummary": "Suara: {{voice}} · Avatar: {{avatar}}",
+        "searchVoices": "Cari suara",
+        "selectedStyle": "Dipilih: {{name}}",
         "settings": "Pengaturan video intro",
-        "useSelection": "Gunakan pilihan"
+        "styleCount_other": "{{count}} gaya",
+        "styleCountOf": "{{shown}} dari {{total}}",
+        "useStyle": "Gunakan {{name}}"
       },
       "style": {
         "auto": "Biarkan Okou memilih",
@@ -1919,10 +1932,9 @@
       "voice": {
         "auto": "Biarkan Okou memilih",
         "defaultDescription": "Gunakan suara default avatar yang dipilih",
-        "heading": "Pilih suara",
         "label": "Suara",
         "none": "Tanpa narasi",
-        "noneDescription": "Jangan tambahkan narasi; pertahankan audio sumber kecuali Anda meminta untuk membisukannya."
+        "noneShortDescription": "Pertahankan audio asli"
       }
     },
     "mail": {

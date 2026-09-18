@@ -685,6 +685,7 @@
       "renameImportedTemplate": "Renomear modelo",
       "searchConnector": "Buscar modelos",
       "searchConnectors": "Buscar modelos",
+      "selected": "Selecionado",
       "selectStyle": "Selecionar estilo {{style}}",
       "selectTemplate": "Selecionar modelo {{title}}",
       "selectVideo": "Selecionar modelo de vídeo {{title}}",
@@ -1924,6 +1925,7 @@
         "heading": "Escolha um avatar",
         "label": "Avatar",
         "none": "Sem avatar",
+        "noneDetail": "Somente estilo",
         "previewLook": "Prévia da aparência {{name}}"
       },
       "catalog": {
@@ -1936,17 +1938,30 @@
         "cancel": "Cancelar"
       },
       "picker": {
-        "autoVoiceDescription": "Encontre uma voz que combine com seu conteúdo.",
+        "allPresenters": "Todos os apresentadores",
+        "allPresentersCount": "Todos os apresentadores ({{total}})",
+        "allVoices": "Todas as vozes",
+        "allVoicesCount": "Todas as vozes ({{total}})",
+        "autoVoiceDescription": "Uma voz que combina com seu estilo",
         "avatarVoice": "Voz do avatar",
         "back": "Voltar",
-        "chooseStyle": "Escolha um estilo",
         "closeOptions": "Fechar opções",
+        "done": "Concluir",
         "moreOptions": "Mais opções",
         "noMatches": "Nenhum resultado.",
+        "optionsNote": "Você pode alterar isso a qualquer momento pelo chip no chat.",
+        "pickStyle": "Escolha um estilo",
+        "reset": "Redefinir",
+        "searchPresenters": "Buscar apresentadores",
         "searchStyles": "Pesquisar estilos",
-        "selectionSummary": "Voz: {{voice}} · Avatar: {{avatar}}",
+        "searchVoices": "Buscar vozes",
+        "selectedStyle": "Selecionado: {{name}}",
         "settings": "Configurações do vídeo de introdução",
-        "useSelection": "Usar seleção"
+        "styleCount_one": "{{count}} estilo",
+        "styleCount_many": "{{count}} estilos",
+        "styleCount_other": "{{count}} estilos",
+        "styleCountOf": "{{shown}} de {{total}}",
+        "useStyle": "Usar {{name}}"
       },
       "style": {
         "auto": "Deixar o Okou escolher",
@@ -1965,10 +1980,9 @@
       "voice": {
         "auto": "Deixar o Okou escolher",
         "defaultDescription": "Usar a voz padrão do avatar escolhido",
-        "heading": "Escolha uma voz",
         "label": "Voz",
         "none": "Sem narração",
-        "noneDescription": "Não adicionar narração; manter o áudio original, a menos que você peça para silenciá-lo."
+        "noneShortDescription": "Manter o áudio original"
       }
     },
     "mail": {

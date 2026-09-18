@@ -666,6 +666,7 @@
       "renameImportedTemplate": "Rename template",
       "searchConnector": "Search templates",
       "searchConnectors": "Search templates",
+      "selected": "Selected",
       "selectStyle": "Select style {{style}}",
       "selectTemplate": "Select template {{title}}",
       "selectVideo": "Select video template {{title}}",
@@ -1886,6 +1887,7 @@
         "heading": "Choose an avatar",
         "label": "Avatar",
         "none": "No avatar",
+        "noneDetail": "Style only",
         "previewLook": "Preview look {{name}}"
       },
       "catalog": {
@@ -1898,17 +1900,29 @@
         "cancel": "Cancel"
       },
       "picker": {
-        "autoVoiceDescription": "Find a voice that fits your content.",
+        "allPresenters": "All presenters",
+        "allPresentersCount": "All presenters ({{total}})",
+        "allVoices": "All voices",
+        "allVoicesCount": "All voices ({{total}})",
+        "autoVoiceDescription": "A voice that fits your style",
         "avatarVoice": "Avatar’s voice",
         "back": "Back",
-        "chooseStyle": "Choose a style",
         "closeOptions": "Close options",
+        "done": "Done",
         "moreOptions": "More options",
         "noMatches": "No matches found.",
+        "optionsNote": "Change these any time from the chip in the chat.",
+        "pickStyle": "Pick a style",
+        "reset": "Reset",
+        "searchPresenters": "Search presenters",
         "searchStyles": "Search styles",
-        "selectionSummary": "Voice: {{voice}} · Avatar: {{avatar}}",
+        "searchVoices": "Search voices",
+        "selectedStyle": "Selected: {{name}}",
         "settings": "Intro video settings",
-        "useSelection": "Use selection"
+        "styleCount_one": "{{count}} style",
+        "styleCount_other": "{{count}} styles",
+        "styleCountOf": "{{shown}} of {{total}}",
+        "useStyle": "Use {{name}}"
       },
       "style": {
         "auto": "Let Okou choose",
@@ -1927,10 +1941,9 @@
       "voice": {
         "auto": "Let Okou choose",
         "defaultDescription": "Use the chosen avatar's default voice",
-        "heading": "Choose a voice",
         "label": "Voice",
         "none": "No voiceover",
-        "noneDescription": "Do not add narration; keep source audio unless you ask to mute it."
+        "noneShortDescription": "Keep the source audio"
       }
     },
     "mail": {

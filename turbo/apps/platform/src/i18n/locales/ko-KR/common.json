@@ -665,6 +665,7 @@
       "renameImportedTemplate": "템플릿 이름 바꾸기",
       "searchConnector": "템플릿 검색",
       "searchConnectors": "템플릿 검색",
+      "selected": "선택됨",
       "selectStyle": "스타일 선택 {{style}}",
       "selectTemplate": "템플릿 선택 {{title}}",
       "selectVideo": "비디오 템플릿 선택 {{title}}",
@@ -1878,6 +1879,7 @@
         "heading": "아바타 선택",
         "label": "아바타",
         "none": "아바타 없음",
+        "noneDetail": "스타일만",
         "previewLook": "{{name}} 모습 미리보기"
       },
       "catalog": {
@@ -1890,17 +1892,28 @@
         "cancel": "취소"
       },
       "picker": {
-        "autoVoiceDescription": "콘텐츠에 맞는 음성을 선택합니다.",
+        "allPresenters": "모든 프레젠터",
+        "allPresentersCount": "모든 프레젠터 ({{total}})",
+        "allVoices": "모든 음성",
+        "allVoicesCount": "모든 음성 ({{total}})",
+        "autoVoiceDescription": "스타일에 어울리는 음성",
         "avatarVoice": "아바타 음성",
         "back": "뒤로",
-        "chooseStyle": "스타일 선택",
         "closeOptions": "옵션 닫기",
+        "done": "완료",
         "moreOptions": "추가 옵션",
         "noMatches": "결과가 없습니다.",
+        "optionsNote": "채팅의 칩에서 언제든지 변경할 수 있습니다.",
+        "pickStyle": "스타일 선택",
+        "reset": "초기화",
+        "searchPresenters": "프레젠터 검색",
         "searchStyles": "스타일 검색",
-        "selectionSummary": "음성: {{voice}} · 아바타: {{avatar}}",
+        "searchVoices": "음성 검색",
+        "selectedStyle": "선택됨: {{name}}",
         "settings": "인트로 영상 설정",
-        "useSelection": "선택 항목 사용"
+        "styleCount_other": "스타일 {{count}}개",
+        "styleCountOf": "{{total}}개 중 {{shown}}개",
+        "useStyle": "{{name}} 사용"
       },
       "style": {
         "auto": "Okou에게 맡기기",
@@ -1919,10 +1932,9 @@
       "voice": {
         "auto": "Okou에게 맡기기",
         "defaultDescription": "선택한 아바타의 기본 음성 사용",
-        "heading": "음성 선택",
         "label": "음성",
         "none": "내레이션 없음",
-        "noneDescription": "내레이션을 추가하지 않으며, 음소거 요청이 없으면 원본 오디오를 유지합니다."
+        "noneShortDescription": "원본 오디오 유지"
       }
     },
     "mail": {
