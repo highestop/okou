@@ -445,7 +445,7 @@ describe("X daily resource usage webhook", () => {
     const second = await createRun();
     const original = observation([resourceId()]);
     const fresh = observation([resourceId()]);
-    const legacy: UsageEvent = {
+    const countEvent: UsageEvent = {
       idempotencyKey: randomUUID(),
       kind: "connector",
       provider: "x",
@@ -453,7 +453,7 @@ describe("X daily resource usage webhook", () => {
       quantity: 5,
     };
     await accept(submit(first, [original]), [200]);
-    await accept(submit(second, [fresh, legacy, original]), [409]);
+    await accept(submit(second, [fresh, countEvent, original]), [409]);
     await expect(chargedUnits(second, configuredPricing)).resolves.toBe(0);
     // The failed request claimed neither its fresh source UUID nor its resource.
     await accept(submit(first, [fresh]), [200]);
@@ -715,14 +715,14 @@ describe("X daily resource usage webhook", () => {
       resources: [{ id, occurrences: 3 }],
       remainder: [{ reason: "missing_id", quantity: 2 }],
     });
-    const legacy: UsageEvent = {
+    const countEvent: UsageEvent = {
       idempotencyKey: randomUUID(),
       kind: "connector",
       provider: "x",
       category: "posts.read",
       quantity: 1,
     };
-    await accept(submit(fixture, [legacy, resource]), [200]);
+    await accept(submit(fixture, [countEvent, resource]), [200]);
     await accept(submit(fixture, [resource]), [200]);
     await accept(submit(fixture, [observation([id])]), [200]);
     await expect(chargedUnits(fixture, configuredPricing)).resolves.toBe(7);
