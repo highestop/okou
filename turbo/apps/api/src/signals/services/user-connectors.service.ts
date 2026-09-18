@@ -11,6 +11,7 @@ import { userCustomConnectors } from "@okouai/db/schema/user-custom-connector";
 import { userConnectors } from "@okouai/db/schema/user-connector";
 
 import type { Db } from "../external/db";
+import { testOverride } from "../../lib/singleton";
 import {
   loadConnectorRuntimeSnapshot,
   type ConnectorRuntimeSnapshot,
@@ -23,6 +24,8 @@ import {
   FEISHU_CUSTOM_CONNECTOR_PERMISSION_BUNDLE_REF,
 } from "./feishu-custom-connector-permissions";
 import type { Tx } from "../../lib/db-types";
+import { admitPiStableContextSubjects } from "./pi-stable-context-erasure.service";
+import { invalidatePiStableContext } from "./pi-stable-context-generation.service";
 
 type UpdateUserConnectorsResult =
   | {
@@ -56,6 +59,36 @@ type UserCustomConnectorUpdateOperation = "replace" | "add" | "remove";
 type CustomConnectorPermissionIntent = "exact" | "preserveExistingOrDefault";
 type DbTransaction = Tx;
 
+interface UserConnectorMutationHooks {
+  readonly beforeAdmission?: () => Promise<void>;
+}
+
+const userConnectorMutationHooks = testOverride<UserConnectorMutationHooks>(
+  () => {
+    return {};
+  },
+);
+
+export function setUserConnectorMutationHooksForTest(
+  hooks: UserConnectorMutationHooks,
+): void {
+  userConnectorMutationHooks.set(hooks);
+}
+
+export function clearUserConnectorMutationHooksForTest(): void {
+  userConnectorMutationHooks.clear();
+}
+
+async function admitUserConnectorMutation(
+  tx: Tx,
+  args: { readonly orgId: string; readonly userId: string },
+): Promise<boolean> {
+  return await admitPiStableContextSubjects(tx, [
+    { subjectKind: "organization", subjectId: args.orgId },
+    { subjectKind: "user", subjectId: args.userId },
+  ]);
+}
+
 interface UserCustomConnectorTransactionResult {
   readonly result: UpdateUserCustomConnectorsResult;
   readonly changedConnectorIds: readonly string[];
@@ -72,6 +105,7 @@ interface UpdateUserCustomConnectorsArgs {
 
 interface UpdateUserCustomConnectorsOptions {
   readonly deferRuntimeWakeupUntilOuterCommit?: boolean;
+  readonly erasureAdmissionAlreadyHeld?: boolean;
 }
 
 type AddUserCustomConnectorResult =
@@ -236,7 +270,11 @@ export async function updateUserConnectors(
   const enabledConnectorSlugs = Array.from(new Set(args.enabledConnectorSlugs));
   const operation = args.operation ?? "replace";
 
+  await userConnectorMutationHooks.get().beforeAdmission?.();
   return await db.transaction(async (tx) => {
+    if (!(await admitUserConnectorMutation(tx, args))) {
+      return { status: "agentNotFound" };
+    }
     const agentLocked = await lockAgentForConnectorReplace(tx, args);
     if (!agentLocked) {
       return { status: "agentNotFound" };
@@ -278,6 +316,11 @@ export async function updateUserConnectors(
     }
 
     if (operation === "replace") {
+      await invalidatePiStableContext(tx, {
+        orgId: args.orgId,
+        userId: args.userId,
+        agentId: args.agentId,
+      });
       return { status: "updated", enabledConnectorSlugs };
     }
 
@@ -285,12 +328,18 @@ export async function updateUserConnectors(
       .select({ connectorSlug: userConnectors.connectorSlug })
       .from(userConnectors)
       .where(connectorScope);
-    return {
+    const result = {
       status: "updated",
       enabledConnectorSlugs: rows.map((row) => {
         return row.connectorSlug;
       }),
-    };
+    } as const;
+    await invalidatePiStableContext(tx, {
+      orgId: args.orgId,
+      userId: args.userId,
+      agentId: args.agentId,
+    });
+    return result;
   });
 }
 
@@ -684,8 +733,18 @@ export async function updateUserCustomConnectors(
       ? await loadConnectorRuntimeSnapshot(db)
       : null;
 
+  await userConnectorMutationHooks.get().beforeAdmission?.();
   const committed = await db.transaction(async (tx) => {
-    return await persistUserCustomConnectorTransaction({
+    if (
+      options.erasureAdmissionAlreadyHeld !== true &&
+      !(await admitUserConnectorMutation(tx, args))
+    ) {
+      return {
+        result: { status: "agentNotFound" } as const,
+        changedConnectorIds: [],
+      };
+    }
+    const persisted = await persistUserCustomConnectorTransaction({
       tx,
       request: args,
       grants,
@@ -693,6 +752,14 @@ export async function updateUserCustomConnectors(
       operation,
       connectorCatalogSnapshot,
     });
+    if (persisted.result.status === "updated") {
+      await invalidatePiStableContext(tx, {
+        orgId: args.orgId,
+        userId: args.userId,
+        agentId: args.agentId,
+      });
+    }
+    return persisted;
   });
   if (
     committed.result.status === "updated" &&

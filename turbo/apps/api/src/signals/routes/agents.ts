@@ -37,6 +37,11 @@ import {
   lockCanonicalAgentMutation,
   lockCanonicalAgentPublicLimit,
 } from "../services/agent-mutation-lock.service";
+import { buildAgentIdentityPrompt } from "../services/agent-identity-prompt.service";
+import {
+  invalidatePiStableContext,
+  type PiStableContextInvalidationOptions,
+} from "../services/pi-stable-context-generation.service";
 import {
   deleteAgentInstructionsStorage$,
   writeAgentInstructionsStorage$,
@@ -248,6 +253,31 @@ function validateAgentVisibilityUpdate(
     },
     signal,
   );
+}
+
+function agentIdentityInvalidationOptions(agent: {
+  readonly agentId: string;
+  readonly defaultAgentId: string | null;
+  readonly displayName: string | null;
+  readonly description: string | null;
+  readonly sound: string | null;
+}): PiStableContextInvalidationOptions {
+  const agentIdentity =
+    buildAgentIdentityPrompt({
+      id: agent.agentId,
+      defaultAgentId: agent.defaultAgentId,
+      displayName: agent.displayName,
+      description: agent.description,
+      sound: agent.sound,
+    }) ?? "";
+  return {
+    transformInput(input) {
+      return {
+        ...input,
+        prompt: { ...input.prompt, agentIdentity },
+      };
+    },
+  };
 }
 
 async function readAgentForResponse(
@@ -555,11 +585,15 @@ const updateAgentInner$ = command(async ({ get, set }, signal: AbortSignal) => {
       .update(agents)
       .set(buildAgentUpsertConflictSet(updateBody, nowDate()))
       .where(and(eq(agents.orgId, auth.orgId), eq(agents.id, params.id)));
-
     const agent = await readAgentForResponse(tx, auth.orgId, params.id);
     if (!agent) {
       throw new Error(`Canonical Agent missing after update: ${params.id}`);
     }
+    await invalidatePiStableContext(
+      tx,
+      { orgId: auth.orgId, agentId: params.id },
+      agentIdentityInvalidationOptions(agent),
+    );
     return { agent };
   });
   signal.throwIfAborted();
@@ -653,11 +687,15 @@ const updateAgentMetadataInner$ = command(
         .update(agents)
         .set(buildAgentUpsertConflictSet(updateBody, nowDate()))
         .where(and(eq(agents.orgId, auth.orgId), eq(agents.id, params.id)));
-
       const agent = await readAgentForResponse(tx, auth.orgId, params.id);
       if (!agent) {
         throw new Error(`Canonical Agent missing after update: ${params.id}`);
       }
+      await invalidatePiStableContext(
+        tx,
+        { orgId: auth.orgId, agentId: params.id },
+        agentIdentityInvalidationOptions(agent),
+      );
       return { agent };
     });
     signal.throwIfAborted();

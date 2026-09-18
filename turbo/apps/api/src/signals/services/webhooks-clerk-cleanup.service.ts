@@ -79,6 +79,7 @@ import {
 import {
   AGENT_LIFECYCLE_LOCK_TIMEOUT,
   deleteClerkAgentLifecycleData,
+  deleteStableContextLifecycleAfterAuthorityRemoval,
 } from "./agent-lifecycle.service";
 import { deleteConnectorOwnerState } from "./connector-owner-cleanup.service";
 import { revokeMorningBriefCollectionOwnership } from "./morning-brief-collection-occurrence.service";
@@ -887,6 +888,13 @@ async function deleteOrgData(
     .delete(orgConcurrencySubscriptions)
     .where(eq(orgConcurrencySubscriptions.orgId, orgId));
   await db.delete(orgMembersCache).where(eq(orgMembersCache.orgId, orgId));
+  // Membership is the durable stable-context admission parent. Re-run only
+  // stable-context cleanup after removing it so a request that raced the early
+  // pass cannot recreate state or repeat unrelated usage/billing lifecycle.
+  await deleteStableContextLifecycleAfterAuthorityRemoval(db, {
+    kind: "organization",
+    orgId,
+  });
   await db
     .delete(orgMembersMetadata)
     .where(eq(orgMembersMetadata.orgId, orgId));
@@ -961,6 +969,13 @@ async function deleteUserData(
     .delete(userPermissionGrants)
     .where(eq(userPermissionGrants.userId, userId));
   await db.delete(orgMembersCache).where(eq(orgMembersCache.userId, userId));
+  // Close the initialization interval between the early Agent cleanup and the
+  // authoritative membership removal. Future initialization now fails its
+  // parent lock; this narrow second pass removes any state created before it.
+  await deleteStableContextLifecycleAfterAuthorityRemoval(db, {
+    kind: "user",
+    userId,
+  });
   await db
     .delete(morningBriefEnrollments)
     .where(eq(morningBriefEnrollments.userId, userId));

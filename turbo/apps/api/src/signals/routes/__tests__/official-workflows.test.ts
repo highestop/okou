@@ -28,6 +28,7 @@ import {
   cronExecuteMorningBriefsContract,
   cronOfficialWorkflowCatalogContract,
 } from "@okouai/api-contracts/contracts/cron";
+import { webhookClerkContract } from "@okouai/api-contracts/contracts/webhooks";
 import { testCronCleanupSandboxesStateContract } from "@okouai/api-contracts/contracts/test-cron-cleanup-sandboxes-state";
 import {
   OFFICIAL_WORKFLOW_CATALOG_SCHEMA_VERSION,
@@ -56,6 +57,7 @@ import {
   VOLUME_ORG_USER_ID,
 } from "@okouai/core/storage-names";
 import { HttpResponse, http } from "msw";
+import { Webhook } from "svix";
 import { beforeEach, describe, expect, it, onTestFinished } from "vitest";
 
 import { setupRawAppRequestWithRoutes } from "../../../__tests__/test-app";
@@ -86,6 +88,15 @@ import {
   readNativeOccurrences,
   readNativeSchedule,
 } from "../../../test-fixtures/morning-brief-native-schedule";
+import {
+  countAgentStableContextPublicationsFixture,
+  countUserStableContextGenerationsFixture,
+  withOwnedPiStableContextGlobalInvalidationFixture,
+} from "../../../test-fixtures/pi-stable-context";
+import {
+  holdOfficialWorkflowActivationBeforeErasureAdmissionFixture,
+  holdOfficialWorkflowInstallationBeforeErasureAdmissionFixture,
+} from "../../../test-fixtures/pi-stable-context-source-writers";
 import {
   holdWorkflowAutomationCommittedRunFixture,
   holdNewerMorningBriefClaimFixture,
@@ -152,6 +163,7 @@ import { testWorkflowAutomationExecutionRoutes } from "../test-workflow-automati
 import { workflowAutomationsRoutes } from "../workflow-automations";
 import { webhooksWorkflowAutomationsRoutes } from "../webhooks-workflow-automations";
 import { workflowsRoutes } from "../workflows";
+import { webhooksClerkRoutes } from "../webhooks-clerk";
 import { testCronCleanupSandboxesStateRoutes } from "../test-cron-cleanup-sandboxes-state";
 import {
   acknowledgeDetachedForTest,
@@ -1074,11 +1086,16 @@ function syncClient(candidate: unknown) {
 }
 
 async function syncCatalog(candidate: unknown) {
-  return await accept(
-    syncClient(candidate).sync({
-      headers: { authorization: `Bearer ${CRON_SECRET}` },
-    }),
-    [200],
+  return await withOwnedPiStableContextGlobalInvalidationFixture(
+    [],
+    async () => {
+      return await accept(
+        syncClient(candidate).sync({
+          headers: { authorization: `Bearer ${CRON_SECRET}` },
+        }),
+        [200],
+      );
+    },
   );
 }
 
@@ -1110,11 +1127,16 @@ function morningBriefCatalog(
 
 async function syncDeployedCatalog() {
   await syncCatalog(catalog([connectorDoctorDefinition()]));
-  return await accept(
-    setupApp({ context, routes: cronOfficialWorkflowCatalogRoutes })(
-      cronOfficialWorkflowCatalogContract,
-    ).sync({ headers: { authorization: `Bearer ${CRON_SECRET}` } }),
-    [200],
+  return await withOwnedPiStableContextGlobalInvalidationFixture(
+    [],
+    async () => {
+      return await accept(
+        setupApp({ context, routes: cronOfficialWorkflowCatalogRoutes })(
+          cronOfficialWorkflowCatalogContract,
+        ).sync({ headers: { authorization: `Bearer ${CRON_SECRET}` } }),
+        [200],
+      );
+    },
   );
 }
 
@@ -1785,6 +1807,46 @@ async function setSimpleMorningBriefEnabled(
     { orgId: actor.orgId, userId: actor.userId },
     { [FeatureSwitchKey.SimpleMorningBrief]: enabled },
   );
+}
+
+async function deliverSignedClerkUserDeleted(
+  userId: string,
+  secretLabel: string,
+): Promise<void> {
+  const sdk = await vi.importActual<typeof import("@clerk/backend/webhooks")>(
+    "@clerk/backend/webhooks",
+  );
+  const secret = `whsec_${Buffer.from(secretLabel).toString("base64")}`;
+  mockOptionalEnv("CLERK_WEBHOOK_SIGNING_SECRET", secret);
+  context.mocks.clerk.verifyWebhook.mockImplementation(
+    async (request: unknown) => {
+      if (!(request instanceof Request)) {
+        throw new Error("expected raw Request");
+      }
+      return await sdk.verifyWebhook(request, { signingSecret: secret });
+    },
+  );
+  const body = JSON.stringify({
+    type: "user.deleted",
+    data: { id: userId, deleted: true },
+  });
+  const id = randomUUID();
+  const timestamp = new Date(now());
+  const signature = new Webhook(secret).sign(id, timestamp, body);
+  await accept(
+    setupApp({ context, routes: webhooksClerkRoutes })(
+      webhookClerkContract,
+    ).post({
+      body,
+      extraHeaders: {
+        "svix-id": id,
+        "svix-timestamp": String(Math.floor(timestamp.getTime() / 1000)),
+        "svix-signature": signature,
+      },
+    }),
+    [200],
+  );
+  await flushWaitUntilForTest();
 }
 
 async function deliverClerkOrganizationCreated(
@@ -4822,6 +4884,119 @@ describe("Official Workflow installations", () => {
     expect(fixedTimezone.body.workflow.automations).toMatchObject([
       { schedule: { type: "cron", timezone: "UTC" } },
     ]);
+  });
+
+  it("rejects a delayed zero-blueprint install after signed user erasure", async () => {
+    installCatalogStorageFixture();
+    const definitionName = `api-test-erasure-${randomUUID()
+      .replaceAll("-", "")
+      .slice(0, 10)}`;
+    await syncCatalog(catalog([activeDefinition(definitionName, [])]));
+
+    const setup = await workflowBdd.setupWorkflowOrg({
+      timezone: "Asia/Shanghai",
+    });
+    const installer = setup.actor;
+    if (!installer.orgId) {
+      throw new Error("Expected organization-scoped installer");
+    }
+    await setOfficialWorkflowsEnabled(installer, true);
+    const agentOwner = bdd.user({
+      orgId: installer.orgId,
+      orgRole: "org:member",
+    });
+    const { agentId } = await workflowBdd.createAgent(agentOwner, {
+      visibility: "public",
+    });
+    onTestFinished(async () => {
+      installCatalogStorageFixture();
+      await bdd.requestDeleteAgent(agentOwner, agentId, [204, 404]);
+      await cleanupCatalog();
+    });
+
+    const entered = createDeferredPromise<void>(context.signal);
+    const release = createDeferredPromise<void>(context.signal);
+    holdOfficialWorkflowInstallationBeforeErasureAdmissionFixture(async () => {
+      entered.resolve();
+      await release.promise;
+    });
+    const install = officialClient().install({
+      headers: authHeaders(installer),
+      params: { definitionName },
+      body: { agentId, blueprints: [] },
+    });
+    await entered.promise;
+    await deliverSignedClerkUserDeleted(
+      installer.userId,
+      "official-workflow-install-erasure",
+    );
+
+    release.resolve();
+    await accept(install, [404]);
+    await expect(
+      countUserStableContextGenerationsFixture({
+        agentId,
+        userId: installer.userId,
+      }),
+    ).resolves.toBe(0);
+  });
+
+  it("cleans a committed installing Workflow without recreating state after signed erasure", async () => {
+    installCatalogStorageFixture();
+    const definitionName = `api-test-activation-erasure-${randomUUID()
+      .replaceAll("-", "")
+      .slice(0, 10)}`;
+    await syncCatalog(catalog([activeDefinition(definitionName, [])]));
+
+    const setup = await workflowBdd.setupWorkflowOrg({
+      timezone: "Asia/Shanghai",
+    });
+    const installer = setup.actor;
+    if (!installer.orgId) {
+      throw new Error("Expected organization-scoped installer");
+    }
+    await setOfficialWorkflowsEnabled(installer, true);
+    const agentOwner = bdd.user({
+      orgId: installer.orgId,
+      orgRole: "org:member",
+    });
+    const { agentId } = await workflowBdd.createAgent(agentOwner, {
+      visibility: "public",
+    });
+    onTestFinished(async () => {
+      installCatalogStorageFixture();
+      await bdd.requestDeleteAgent(agentOwner, agentId, [204, 404]);
+      await cleanupCatalog();
+    });
+
+    const entered = createDeferredPromise<void>(context.signal);
+    const release = createDeferredPromise<void>(context.signal);
+    holdOfficialWorkflowActivationBeforeErasureAdmissionFixture(async () => {
+      entered.resolve();
+      await release.promise;
+    });
+    const install = officialClient().install({
+      headers: authHeaders(installer),
+      params: { definitionName },
+      body: { agentId, blueprints: [] },
+    });
+    await entered.promise;
+    await deliverSignedClerkUserDeleted(
+      installer.userId,
+      "official-workflow-activation-erasure",
+    );
+
+    release.resolve();
+    await accept(install, [404]);
+    await expect(
+      countUserStableContextGenerationsFixture({
+        agentId,
+        userId: installer.userId,
+      }),
+    ).resolves.toBe(0);
+    await expect(
+      countAgentStableContextPublicationsFixture(agentId),
+    ).resolves.toBe(0);
   });
 
   it("guards access and validates concurrent installations through public boundaries", async () => {
@@ -12532,7 +12707,19 @@ describe("Official Workflow Run admission", () => {
     let installation = await install();
     onTestFinished(async () => {
       installCatalogStorageFixture();
-      await bdd.deleteAgent(actor, agentId);
+      // Parallel X-resource tests intentionally queue an exclusive global
+      // compaction waiter. Agent DELETE exposes that transient contention as
+      // retryable 409, so this unrelated cleanup must not assert first-attempt
+      // availability; deletion contract tests use requestDeleteAgent directly.
+      await expect
+        .poll(
+          async () => {
+            return (await bdd.requestDeleteAgent(actor, agentId, [204, 409]))
+              .status;
+          },
+          { interval: 25, timeout: 2000 },
+        )
+        .toBe(204);
       await cleanupCatalog();
     });
     const initialRunFamily = await readAgentRunFamilyCountsFixture(
