@@ -160,7 +160,7 @@ import {
   getSkillStorageName,
   MEMORY_ARTIFACT_NAME,
 } from "@okouai/core/storage-names";
-import { INTRO_VIDEO_SKILL_NAME, SEED_SKILLS } from "@okouai/core/seed-skills";
+import { SEED_SKILLS } from "@okouai/core/seed-skills";
 import {
   expandVariables,
   expandVariablesInString,
@@ -1132,8 +1132,6 @@ export interface CreateAgentRunArgs {
   readonly testOnlyResolveDirectRun?: TestOnlyDirectRunResolver;
   readonly okouTokenComputerUseHostId?: string;
   readonly okouTokenCloudBrowserEnabled?: boolean;
-  /** Immutable Intro Video eligibility captured with the caller's switch context. */
-  readonly introVideoEnabled?: boolean;
   readonly platformEnvironment?: Record<string, string>;
   // When set, system + workflow skill volumes are built and prepended in
   // prepareRunContext using the run's resolved (model-provider) framework.
@@ -1511,7 +1509,6 @@ function buildCustomConnectorSkillVolumes(
 function buildInjectedSkillVolumes(
   args: {
     readonly injectSkillVolumes: CreateAgentRunArgs["injectSkillVolumes"];
-    readonly introVideoEnabled: boolean;
     readonly systemSkillStorageResolution: SystemSkillStorageResolution;
     readonly allowedConnectorSlugs: readonly ConnectorSlug[];
     readonly connectorCatalogSelection: RunConnectorCatalogSelection;
@@ -1535,15 +1532,6 @@ function buildInjectedSkillVolumes(
       }),
       "system_skill",
     ) ?? []),
-    ...(args.introVideoEnabled
-      ? buildLegacySystemSkillVolumes(
-          [INTRO_VIDEO_SKILL_NAME],
-          skillsRoot,
-          args.systemSkillStorageResolution,
-        ).map((volume) => {
-          return { volume, source: "system_skill" as const };
-        })
-      : []),
     ...(args.connectorCatalogSelection.kind === "scoped"
       ? buildConnectorSkillVolumes(
           args.allowedConnectorSlugs,
@@ -9792,7 +9780,6 @@ function preparedRunAdditionalVolumes(args: {
   readonly connectorCatalogSelection: RunConnectorCatalogSelection;
   readonly customConnectorContext: CustomConnectorRuntimeContext;
   readonly skillsRoot: string;
-  readonly featureSwitchContext: FeatureSwitchContext;
   readonly body: CreateRunBody;
   readonly resolved: ResolvedRunExecution;
   readonly officialWorkflowRun: OfficialWorkflowRunObservation | undefined;
@@ -9802,12 +9789,6 @@ function preparedRunAdditionalVolumes(args: {
     {
       injectSkillVolumes: args.createArgs.injectSkillVolumes,
       systemSkillStorageResolution: args.systemSkillStorageResolution,
-      introVideoEnabled:
-        args.createArgs.introVideoEnabled ??
-        isFeatureEnabled(
-          FeatureSwitchKey.IntroVideo,
-          args.featureSwitchContext,
-        ),
       allowedConnectorSlugs: args.connectorScope.allowedConnectorSlugs,
       connectorCatalogSelection: args.connectorCatalogSelection,
       officialWorkflowRun: args.officialWorkflowRun,
@@ -10531,7 +10512,6 @@ function prepareRunOutputMetadata(args: {
     connectorCatalogSelection: args.connectorCatalogSelection,
     customConnectorContext: args.customConnectorContext,
     skillsRoot: skillsRootForRun(args.framework, args.piSandbox),
-    featureSwitchContext: args.featureSwitchContext,
     body: args.body,
     resolved: args.resolved,
     officialWorkflowRun: args.officialWorkflowRun,
@@ -11511,9 +11491,6 @@ function durablePiConfigurationOptions(
       : {
           okouTokenCloudBrowserEnabled: input.args.okouTokenCloudBrowserEnabled,
         }),
-    ...(input.args.introVideoEnabled === undefined
-      ? {}
-      : { introVideoEnabled: input.args.introVideoEnabled }),
     ...(input.args.injectSkillVolumes
       ? { injectSkillVolumes: input.args.injectSkillVolumes }
       : {}),

@@ -333,13 +333,6 @@ const FEATURE_SWITCHES: Record<FeatureSwitchKey, FeatureSwitch> = {
       "Trace explicitly opted-in Pi runs across the API-first and Sandbox ownership boundary in Langfuse.",
     enabled: false,
   },
-  [FeatureSwitchKey.IntroVideo]: {
-    maintainer: "bingjie@okou.ai",
-    description:
-      "Enable intro videos with style, avatar, and voice selection in the template picker.",
-    enabled: false,
-    enabledOrgIdHashes: STAFF_ORG_ID_HASHES,
-  },
   [FeatureSwitchKey.AvatarNeckSweater]: {
     maintainer: "ming@okou.ai",
     description:
