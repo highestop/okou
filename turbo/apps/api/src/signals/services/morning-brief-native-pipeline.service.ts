@@ -30,8 +30,10 @@ import {
   executeMorningBriefComposedGeneration$,
   type MorningBriefComposedExecution,
 } from "./morning-brief-composed-generation.service";
+import { recoverMorningBriefGeneration$ } from "./morning-brief-generation-executor.service";
 import type {
   NativeDeliveryRecovery,
+  NativeDeliveryRecoveryResolution,
   NativeSlotExecution,
   NativeSlotExecutor,
   NativeTickDependencies,
@@ -433,6 +435,26 @@ export const executeNativeMorningBriefSlot$ = command(
   },
 );
 
+async function hasNativeMorningBriefDeliveryReceipt(
+  db: Pick<ReadonlyDb, "select">,
+  owner: MorningBriefMemberIdentity,
+  occurrence: MorningBriefNativeOccurrenceRow,
+): Promise<boolean> {
+  const [receipt] = await db
+    .select({ chatEventId: morningBriefDeliveries.chatEventId })
+    .from(morningBriefDeliveries)
+    .where(
+      and(
+        eq(morningBriefDeliveries.orgId, owner.orgId),
+        eq(morningBriefDeliveries.userId, owner.userId),
+        eq(morningBriefDeliveries.scheduledFor, occurrence.scheduledFor),
+        eq(morningBriefDeliveries.executionPurpose, "production"),
+      ),
+    )
+    .limit(1);
+  return receipt !== undefined;
+}
+
 /**
  * Resolve one pending delivery recovery, receipt first.
  *
@@ -451,36 +473,54 @@ export const recoverNativeMorningBriefDelivery$ = command(
       readonly occurrence: MorningBriefNativeOccurrenceRow;
     },
     signal: AbortSignal,
-  ): Promise<"delivered" | "pending" | "terminal-failure"> => {
+  ): Promise<NativeDeliveryRecoveryResolution> => {
     const db = set(writeDb$);
-    const [receipt] = await db
-      .select({ chatEventId: morningBriefDeliveries.chatEventId })
-      .from(morningBriefDeliveries)
-      .where(
-        and(
-          eq(morningBriefDeliveries.orgId, args.owner.orgId),
-          eq(morningBriefDeliveries.userId, args.owner.userId),
-          eq(morningBriefDeliveries.scheduledFor, args.occurrence.scheduledFor),
-          eq(morningBriefDeliveries.executionPurpose, "production"),
-        ),
-      )
-      .limit(1);
+    const receiptCommitted = await hasNativeMorningBriefDeliveryReceipt(
+      db,
+      args.owner,
+      args.occurrence,
+    );
     signal.throwIfAborted();
-    if (receipt !== undefined) {
+    if (receiptCommitted) {
       // Already delivered. Email recovery stays with S6's receipt and the S2
       // shared outbox; this consumer only releases the scheduler's obligation.
-      return "delivered";
+      return { kind: "settle", outcome: "delivered" };
     }
 
-    if (args.occurrence.generationAttemptId === null) {
-      return "terminal-failure";
+    const generationAttemptId = args.occurrence.generationAttemptId;
+    if (generationAttemptId === null) {
+      return { kind: "settle", outcome: "generation-unknown" };
     }
+
+    // No receipt exists, so consult S5's canonical, content-free readback for
+    // the exact attempt this occurrence bound. This never recollects, parses a
+    // provider payload or opens another invocation admission.
+    const generation = await set(
+      recoverMorningBriefGeneration$,
+      {
+        owner: args.owner,
+        attemptId: generationAttemptId,
+        purpose: "production",
+      },
+      signal,
+    );
+    signal.throwIfAborted();
+    if (generation.kind === "pending") {
+      return { kind: "pending" };
+    }
+    if (generation.kind !== "deliverable") {
+      return { kind: "settle", outcome: generation.kind };
+    }
+
+    // Only an accepted, retained `deliver` result reaches S6. S6 remains the
+    // sole content-release and Chat/email authority; recovery never reads or
+    // interprets the saved body itself.
     const retried = await set(
       deliverMorningBriefResult$,
       {
         orgId: args.owner.orgId,
         userId: args.owner.userId,
-        resultAttemptId: args.occurrence.generationAttemptId,
+        resultAttemptId: generation.attemptId,
         purpose: "production",
         nativeAuthority: {
           ownerEpoch: args.occurrence.ownerEpoch,
@@ -489,14 +529,25 @@ export const recoverNativeMorningBriefDelivery$ = command(
       },
       signal,
     );
-    if (retried.kind === "rejected") {
-      // `result-not-found` after retention has been exhausted with no committed
-      // receipt is the only terminal delivery failure.
-      return retried.reason === "result-not-found"
-        ? "terminal-failure"
-        : "pending";
+    if (retried.kind !== "rejected") {
+      return { kind: "settle", outcome: "delivered" };
     }
-    return "delivered";
+    if (
+      retried.reason === "result-not-found" ||
+      retried.reason === "result-expired"
+    ) {
+      return { kind: "settle", outcome: "generation-unknown" };
+    }
+    if (retried.reason === "result-not-deliverable") {
+      // S5 classified this immutable row as deliverable. If S6 cannot validate
+      // that same exact attempt, it is terminally inconsistent rather than a
+      // reason to spin or to regenerate.
+      return { kind: "settle", outcome: "generation-failed" };
+    }
+    // Authority and destination refusals can change while the retained result
+    // remains valid. Keep the obligation pending for a later finite recovery;
+    // a revoking writer still clears it under the exact epoch fence.
+    return { kind: "pending" };
   },
 );
 
@@ -504,14 +555,23 @@ export const recoverNativeMorningBriefDelivery$ = command(
 export function productionNativeTickDependencies(args: {
   readonly db: ReadonlyDb;
   readonly executor: NativeSlotExecutor;
-  readonly delivery: NativeDeliveryRecovery;
+  readonly delivery: Pick<NativeDeliveryRecovery, "resolve">;
   readonly scope?: MorningBriefMemberIdentity;
 }): NativeTickDependencies {
   const { db } = args;
   return {
     scope: args.scope,
     executor: args.executor,
-    delivery: args.delivery,
+    delivery: {
+      resolve: args.delivery.resolve,
+      hasCommittedReceipt: async (receiptDb, owner, occurrence) => {
+        return await hasNativeMorningBriefDeliveryReceipt(
+          receiptDb,
+          owner,
+          occurrence,
+        );
+      },
+    },
     legacyDrain: async (owner) => {
       const schedule = await readMorningBriefNativeSchedule(db, owner);
       return await proveLegacyMorningBriefDrain(db, owner, schedule);
