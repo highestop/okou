@@ -645,7 +645,7 @@
       "importedSlides_one": "{{count}} slide",
       "importedSlides_other": "{{count}} slide",
       "importFile": "Impor file Anda sendiri",
-      "importFileHint": "({{formats}})",
+      "importFileHint": "Pakai lagi desain file Anda",
       "importUnsupported": "Pilih file {{formats}} untuk membuat templat.",
       "multiAccent": "Multi-aksen",
       "needPro": "Perlu Pro",
