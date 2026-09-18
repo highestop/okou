@@ -283,12 +283,6 @@ const FEATURE_SWITCHES: Record<FeatureSwitchKey, FeatureSwitch> = {
     description: "Enable Codex fast mode for GPT 5.6 runs.",
     enabled: true,
   },
-  [FeatureSwitchKey.ModelPickerFlyout]: {
-    maintainer: "tongx@okou.ai",
-    description:
-      "Pick a model from a detached flyout: model types on the left, that type's models in a panel beside it.",
-    enabled: true,
-  },
   [FeatureSwitchKey.ChatPreference]: {
     maintainer: "lancy@okou.ai",
     description:
