@@ -1711,6 +1711,10 @@ function createArtifactPreviewImageUrls(
           continue;
         }
         previewImageUrlsByUrl.set(file.url, file.previewImageUrl);
+        previewImageUrlsByUrl.set(
+          canonicalUserMessageFileUrl(file.id),
+          file.previewImageUrl,
+        );
         if (file.aliasUrl) {
           previewImageUrlsByUrl.set(file.aliasUrl, file.previewImageUrl);
         }
