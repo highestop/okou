@@ -74,6 +74,7 @@ import {
   readOfficialWorkflowQueueInputFixture,
   readOfficialWorkflowQueueRunFixture,
 } from "../../../test-fixtures/official-workflow-queue";
+import { serializeOfficialWorkflowCatalogTests } from "../../../test-fixtures/official-workflow-catalog-lease";
 import { verifyOkouToken } from "../../auth/tokens";
 import { testChatEventSearchProjectionRoutes } from "../test-chat-event-search-projection";
 import { testChatEventSnapshotRoutes } from "../test-chat-event-snapshot";
@@ -199,6 +200,7 @@ const NOTION_FIRST_PAGE_URL = `https://www.notion.so/First-${NOTION_FIRST_PAGE_I
 const NOTION_SECOND_PAGE_ID = "22222222-2222-4222-8222-222222222222";
 const NOTION_SECOND_PAGE_URL = `https://www.notion.so/Second-${NOTION_SECOND_PAGE_ID.replaceAll("-", "")}`;
 const STAFF_ORG_ID = "org_3ANttyrbWYJk6JKRSTRLEsbsDLe";
+serializeOfficialWorkflowCatalogTests();
 
 type ActiveDefinition = Extract<
   OfficialWorkflowSourceDefinition,
