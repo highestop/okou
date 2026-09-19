@@ -18,7 +18,7 @@ import {
   type Loadable,
 } from "ccstate-react";
 import type { TFunction } from "i18next";
-import { equalArrays } from "../../lib/equality.ts";
+import { equalArrays, equalSets } from "../../lib/equality.ts";
 import { useTranslation } from "react-i18next";
 import { formatAppNumber, formatChatTimestamp } from "../../i18n/format.ts";
 import { pageSignal$ } from "../../signals/page-signal.ts";
@@ -242,6 +242,7 @@ import type {
   ChatInputEvent,
   ChatEvent,
 } from "../../signals/chat-page/chat-event-types.ts";
+import { optimisticEventIds$ } from "../../signals/chat-page/optimistic-chat-events.ts";
 import type { ChatRunModelSelection } from "../../signals/chat-page/chat-event-state.ts";
 import type { AgentReferenceSignals } from "../../signals/chat-page/agent-reference-signals.ts";
 import type { RunDetailSignals } from "../../signals/chat-page/run-detail.ts";
@@ -6904,10 +6905,13 @@ function UserMessageContent({
   document,
   attachments,
   onImageClick,
+  leading,
 }: {
   document: UserMessageRenderDocument;
   attachments: ReturnType<typeof userMessageRenderAttachments>;
   onImageClick: OpenMessageImagePreview;
+  /** Sits directly left of the bubble, for example the pending spinner. */
+  leading?: ReactNode;
 }) {
   // Attachments read as their own object, so they all sit above the bubble
   // instead of interrupting the sentence they were dropped into. Attachments
@@ -6934,14 +6938,20 @@ function UserMessageContent({
         onImageClick={onImageClick}
       />
       {hasBody ? (
-        <ChatUserMessageBubble>
-          <div className="px-4 py-3">
-            <UserMessageView
-              document={document}
-              elevatedFileIds={elevatedFileIds}
-            />
-          </div>
-        </ChatUserMessageBubble>
+        // The bubble gets its own full-width row so `leading` can sit against
+        // its left edge while the bubble's `max-w-[85%]` still resolves against
+        // the whole message width.
+        <div className="flex w-full items-start justify-end gap-2">
+          {leading}
+          <ChatUserMessageBubble>
+            <div className="px-4 py-3">
+              <UserMessageView
+                document={document}
+                elevatedFileIds={elevatedFileIds}
+              />
+            </div>
+          </ChatUserMessageBubble>
+        </div>
       ) : null}
     </>
   );
@@ -7055,6 +7065,46 @@ function inputPromptRunAnchor(inputEvent: ChatInputEvent | undefined) {
     : undefined;
 }
 
+/**
+ * The message is still page-local until a persistent event with the same id
+ * replaces it, so the spinner subscribes on its own instead of making the whole
+ * message row re-render on every optimistic change.
+ */
+function OptimisticSpinner({ eventId }: { eventId: string }) {
+  const enabled =
+    useGet(featureSwitch$)[FeatureSwitchKey.OptimisticMessageSpinner] === true;
+  // Streaming deltas rebuild the optimistic buffer, so compare the ids instead
+  // of the set identity: a pending message keeps every other spinner idle.
+  const optimisticEventIds = useGet(optimisticEventIds$, {
+    equalityFn: equalSets,
+  });
+  // Only the presentation is gated: the message still renders and reconciles
+  // exactly as before, so a message keeps its layout while the switch is off.
+  if (!enabled) {
+    return null;
+  }
+  // The slot repeats the bubble's own padding and line metrics so the spinner
+  // centers on the first line of text however many lines the message wraps to.
+  // It stays reserved when the message is confirmed, so the bubble never
+  // reflows.
+  return (
+    <div
+      aria-hidden
+      className="flex shrink-0 py-3 text-[0.9375rem] leading-[1.7]"
+    >
+      <span className="flex h-[1.7em] w-3.5 items-center">
+        {optimisticEventIds.has(eventId) ? (
+          <Loader2
+            size={14}
+            data-optimistic-user-message
+            className="animate-spin text-muted-foreground"
+          />
+        ) : null}
+      </span>
+    </div>
+  );
+}
+
 function PagedUserMessage({
   event,
   thread,
@@ -7148,6 +7198,7 @@ function PagedUserMessage({
                 document={renderDocument}
                 attachments={allAttachments}
                 onImageClick={openLightbox}
+                leading={<OptimisticSpinner eventId={event.id} />}
               />
               {/* The row belongs to the bubble, not to the button inside it.
                   Sharing hides the button and a message nobody can copy has
