@@ -72,6 +72,7 @@ export enum FeatureSwitchKey {
   ComposerTemplateChipCover = "composerTemplateChipCover",
   ComposerSlashTemplatePanel = "composerSlashTemplatePanel",
   GetStartedQuests = "getStartedQuests",
+  GetStartedQuestIntro = "getStartedQuestIntro",
   ComposerAddMenu = "composerAddMenu",
   CustomTemplates = "customTemplates",
   PresentationConvert = "presentationConvert",

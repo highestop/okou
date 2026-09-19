@@ -1435,6 +1435,53 @@
         },
         "inReview": "確認中",
         "inReviewDescription": "送信済み、確認待ち",
+        "intro": {
+          "checkin": {
+            "amount": "+{{amount}} クレジット",
+            "confirm": "仕事に戻る",
+            "description": "クレジットは仕事そのものに使われます。1 回の実行、1 つの成果物、スケジュールで動くワークフローのすべてに。",
+            "title": "今日のぶんは完了です"
+          },
+          "connector": {
+            "confirm": "すべてのコネクターを見る",
+            "description": "普段使っているツールをつないで、{{assistantName}} がその中で作業できるようにします。",
+            "pickerFailed": "コネクターを読み込めませんでした。コネクターページで再試行してください。",
+            "pickerLoading": "コネクターを読み込み中…",
+            "title": "{{assistantName}} は、あなたが普段使っているツールの中で働きます"
+          },
+          "invite": {
+            "confirm": "メンバーを招待",
+            "description": "このワークスペースにチームメンバーを招待します。",
+            "note": "一度つくった仕組みが、あなただけのものではなくなります。今朝入ったばかりの人でも、やり方を聞かずに午後には動かせます。",
+            "title": "ひとりが覚えたことを、全員が実行できます"
+          },
+          "later": "後で",
+          "slack": {
+            "appBadge": "APP",
+            "confirm": "Slack に追加",
+            "description": "チームの Slack ワークスペースに {{assistantName}} を追加します。",
+            "note": "チームが毎回あなたを経由しなくてよくなります。チャンネルで頼めば、結果はそのスレッドに返ってきて、全員が見られます。",
+            "sampleChannel": "# growth",
+            "title": "チームがすでに会話している場所で {{assistantName}} を使う"
+          },
+          "workflow": {
+            "browse": "テンプレートを見る",
+            "confirm": "ひとつ試してみる",
+            "description": "繰り返している仕事を、チームが実行できるワークフローにします。",
+            "prompt": "毎週月曜の朝に、競合が先週公開した内容を調べて、テーマごとにまとめて比較表にしてください。",
+            "promptConfirm": "{{assistantName}} に送る",
+            "promptDescription": "このまま {{assistantName}} に送るか、文言を変えてから送ってください。",
+            "promptOutcome": "情報源を読み、見つけたものを整理して、表にして返します。結果が良ければ、その実行をワークフローとして保存するか聞いてきます。",
+            "promptTitle": "同僚に頼むように伝えてください",
+            "stepRun": "まず 1 回動かす",
+            "stepRunDescription": "何かを決める前に、仕上がった成果物を確認できます。",
+            "stepSave": "保存して、スケジュールを決める",
+            "stepSaveDescription": "誰も頼まなくても動き、チームの誰でも実行できます。",
+            "stepTemplate": "テンプレートから始める",
+            "stepTemplateDescription": "白紙からではなく、自分の仕事に近いものを選びます。",
+            "title": "うまくいった 1 回が、チームの資産になります"
+          }
+        },
         "invite": {
           "action": "招待",
           "description": "追加した人数だけ加算されます",

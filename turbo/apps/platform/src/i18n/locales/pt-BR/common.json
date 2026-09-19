@@ -1460,6 +1460,53 @@
         },
         "inReview": "Em análise",
         "inReviewDescription": "Enviado, aguardando análise",
+        "intro": {
+          "checkin": {
+            "amount": "+{{amount}} créditos",
+            "confirm": "Voltar ao trabalho",
+            "description": "Os créditos pagam o trabalho em si: cada execução, cada artefato, cada fluxo que roda no horário.",
+            "title": "O de hoje está feito"
+          },
+          "connector": {
+            "confirm": "Ver todos os conectores",
+            "description": "Conecte uma das suas ferramentas para o {{assistantName}} trabalhar dentro dela.",
+            "pickerFailed": "Não foi possível carregar os conectores. Abra a página de conectores para tentar de novo.",
+            "pickerLoading": "Carregando conectores…",
+            "title": "O {{assistantName}} trabalha dentro das ferramentas que você já usa"
+          },
+          "invite": {
+            "confirm": "Convidar o time",
+            "description": "Convide seus colegas para este espaço de trabalho.",
+            "note": "O que você montou uma vez deixa de ser só seu. Quem entrou hoje de manhã já roda à tarde, sem perguntar como funciona.",
+            "title": "O que uma pessoa aprende, o time inteiro executa"
+          },
+          "later": "Depois",
+          "slack": {
+            "appBadge": "APP",
+            "confirm": "Adicionar ao Slack",
+            "description": "Adicione o {{assistantName}} ao espaço do Slack do seu time.",
+            "note": "Seus colegas deixam de precisar passar por você. Eles pedem no canal e o trabalho volta na thread, onde todo mundo vê.",
+            "sampleChannel": "# growth",
+            "title": "Trabalhe com o {{assistantName}} onde seu time já conversa"
+          },
+          "workflow": {
+            "browse": "Ver modelos",
+            "confirm": "Me mostra um",
+            "description": "Transforme um trabalho que você repete num fluxo que o time pode rodar.",
+            "prompt": "Toda segunda de manhã, veja o que meus concorrentes publicaram na semana passada, agrupe por tema e me dê uma tabela comparativa.",
+            "promptConfirm": "Enviar para o {{assistantName}}",
+            "promptDescription": "Envie assim mesmo para o {{assistantName}} ou mude o texto antes.",
+            "promptOutcome": "Ele lê as fontes, agrupa o que encontra e responde com a tabela. Se o resultado ficar bom, ele oferece guardar essa execução como fluxo.",
+            "promptTitle": "Peça como pediria a um colega",
+            "stepRun": "Rode uma vez",
+            "stepRunDescription": "Você vê o trabalho pronto antes de se comprometer com qualquer coisa.",
+            "stepSave": "Salve e defina um horário",
+            "stepSaveDescription": "Ele roda sem ninguém pedir, e qualquer colega também pode rodar.",
+            "stepTemplate": "Comece por um modelo",
+            "stepTemplateDescription": "Escolha um próximo do seu trabalho em vez de uma página em branco.",
+            "title": "Uma boa execução vira algo que o time guarda"
+          }
+        },
         "invite": {
           "action": "Convidar",
           "description": "Cada pessoa que você adiciona conta",

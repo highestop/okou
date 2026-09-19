@@ -1435,6 +1435,53 @@
         },
         "inReview": "Sedang ditinjau",
         "inReviewDescription": "Terkirim, menunggu ditinjau",
+        "intro": {
+          "checkin": {
+            "amount": "+{{amount}} kredit",
+            "confirm": "Kembali bekerja",
+            "description": "Kredit membayar pekerjaannya sendiri: setiap jalannya, setiap hasil, setiap alur kerja yang berjalan sesuai jadwal.",
+            "title": "Bagian hari ini selesai"
+          },
+          "connector": {
+            "confirm": "Lihat semua konektor",
+            "description": "Hubungkan salah satu alat Anda supaya {{assistantName}} bisa bekerja di dalamnya.",
+            "pickerFailed": "Konektor gagal dimuat. Buka halaman konektor untuk mencoba lagi.",
+            "pickerLoading": "Memuat konektor…",
+            "title": "{{assistantName}} bekerja di dalam alat yang sudah Anda pakai"
+          },
+          "invite": {
+            "confirm": "Undang tim",
+            "description": "Undang rekan-rekan Anda ke ruang kerja ini.",
+            "note": "Yang Anda siapkan sekali berhenti jadi milik Anda sendiri. Orang yang bergabung pagi ini bisa menjalankannya sore ini, tanpa bertanya caranya.",
+            "title": "Yang diketahui satu orang bisa dijalankan semua orang"
+          },
+          "later": "Nanti saja",
+          "slack": {
+            "appBadge": "APP",
+            "confirm": "Tambahkan ke Slack",
+            "description": "Tambahkan {{assistantName}} ke ruang kerja Slack tim Anda.",
+            "note": "Rekan-rekan tidak perlu lewat Anda dulu. Mereka minta di kanal, dan hasilnya kembali di thread itu, di depan semua orang.",
+            "sampleChannel": "# growth",
+            "title": "Bekerja dengan {{assistantName}} di tempat tim Anda sudah berbicara"
+          },
+          "workflow": {
+            "browse": "Lihat templat",
+            "confirm": "Tunjukkan satu",
+            "description": "Ubah pekerjaan yang Anda ulang menjadi alur kerja yang bisa dijalankan tim.",
+            "prompt": "Setiap Senin pagi, periksa apa yang dipublikasikan kompetitor saya minggu lalu, kelompokkan menurut tema, dan buatkan tabel perbandingan.",
+            "promptConfirm": "Kirim ke {{assistantName}}",
+            "promptDescription": "Kirim begini saja ke {{assistantName}}, atau ubah dulu kalimatnya.",
+            "promptOutcome": "Ia membaca sumbernya, mengelompokkan yang ditemukan, lalu menjawab dengan tabelnya. Kalau hasilnya pas, ia menawarkan menyimpan jalannya itu sebagai alur kerja.",
+            "promptTitle": "Minta seperti Anda meminta kepada rekan kerja",
+            "stepRun": "Jalankan sekali",
+            "stepRunDescription": "Anda melihat hasil jadinya sebelum memutuskan apa pun.",
+            "stepSave": "Simpan, lalu beri jadwal",
+            "stepSaveDescription": "Ia jalan tanpa diminta, dan rekan mana pun bisa menjalankannya.",
+            "stepTemplate": "Mulai dari templat",
+            "stepTemplateDescription": "Pilih yang dekat dengan pekerjaan Anda daripada mulai dari halaman kosong.",
+            "title": "Satu jalan yang berhasil menjadi milik tim seterusnya"
+          }
+        },
         "invite": {
           "action": "Undang",
           "description": "Setiap orang yang kamu tambahkan dihitung",

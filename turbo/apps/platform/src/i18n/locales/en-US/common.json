@@ -1436,6 +1436,53 @@
         },
         "inReview": "In review",
         "inReviewDescription": "Submitted, waiting on review",
+        "intro": {
+          "checkin": {
+            "amount": "+{{amount}} credits",
+            "confirm": "Back to work",
+            "description": "Credits pay for the work itself: every run, every artifact, every workflow that runs on a schedule.",
+            "title": "That is today done"
+          },
+          "connector": {
+            "confirm": "Browse all connectors",
+            "description": "Connect one of your tools so {{assistantName}} can work in it.",
+            "pickerFailed": "Connectors could not be loaded. Open the connectors page to try again.",
+            "pickerLoading": "Loading connectors…",
+            "title": "{{assistantName}} works inside the tools you already use"
+          },
+          "invite": {
+            "confirm": "Invite teammates",
+            "description": "Invite your teammates to this workspace.",
+            "note": "What you set up once stops being yours alone. Someone who joined this morning can run it this afternoon, without asking you how it works.",
+            "title": "What one person knows, everyone can run"
+          },
+          "later": "Later",
+          "slack": {
+            "appBadge": "APP",
+            "confirm": "Add to Slack",
+            "description": "Add {{assistantName}} to your team's Slack workspace.",
+            "note": "Your teammates stop coming to you first. They ask in the channel, and the work comes back in the thread where everyone can see it.",
+            "sampleChannel": "# growth",
+            "title": "Work with {{assistantName}} where your team already talks"
+          },
+          "workflow": {
+            "browse": "Browse templates",
+            "confirm": "Give me one to try",
+            "description": "Turn a job you repeat into a workflow the team can run.",
+            "prompt": "Every Monday morning, check what my competitors published last week, group it by theme, and give me a comparison table.",
+            "promptConfirm": "Send it to {{assistantName}}",
+            "promptDescription": "Send this to {{assistantName}} as it is, or change the wording first.",
+            "promptOutcome": "It reads the sources, groups what it finds and replies with the table. If the result is right, it offers to keep the run as a workflow.",
+            "promptTitle": "Ask the way you would ask a colleague",
+            "stepRun": "Run it once",
+            "stepRunDescription": "You see the finished work before you commit to anything.",
+            "stepSave": "Save it, then give it a schedule",
+            "stepSaveDescription": "It runs without anyone asking, and any teammate can run it too.",
+            "stepTemplate": "Start from a template",
+            "stepTemplateDescription": "Pick one close to your job instead of starting from a blank page.",
+            "title": "One good run becomes something the team keeps"
+          }
+        },
         "invite": {
           "action": "Invite",
           "description": "Everyone you add counts",

@@ -1460,6 +1460,53 @@
         },
         "inReview": "En cours d'examen",
         "inReviewDescription": "Envoyé, en attente d'examen",
+        "intro": {
+          "checkin": {
+            "amount": "+{{amount}} crédits",
+            "confirm": "Retour au travail",
+            "description": "Les crédits paient le travail lui-même : chaque exécution, chaque artefact, chaque workflow qui tourne à l'heure dite.",
+            "title": "C'est fait pour aujourd'hui"
+          },
+          "connector": {
+            "confirm": "Voir tous les connecteurs",
+            "description": "Connectez un de vos outils pour que {{assistantName}} puisse y travailler.",
+            "pickerFailed": "Impossible de charger les connecteurs. Ouvrez la page des connecteurs pour réessayer.",
+            "pickerLoading": "Chargement des connecteurs…",
+            "title": "{{assistantName}} travaille dans les outils que vous utilisez déjà"
+          },
+          "invite": {
+            "confirm": "Inviter l'équipe",
+            "description": "Invitez vos collègues dans cet espace de travail.",
+            "note": "Ce que vous avez mis en place une fois cesse d'être à vous seul. Quelqu'un arrivé ce matin peut le lancer cet après-midi, sans vous demander comment.",
+            "title": "Ce qu'une personne sait, toute l'équipe peut l'exécuter"
+          },
+          "later": "Plus tard",
+          "slack": {
+            "appBadge": "APP",
+            "confirm": "Ajouter à Slack",
+            "description": "Ajoutez {{assistantName}} à l'espace Slack de votre équipe.",
+            "note": "Vos collègues n'ont plus à passer par vous. Ils demandent dans le canal, et le travail revient dans le fil, à la vue de tous.",
+            "sampleChannel": "# growth",
+            "title": "Travaillez avec {{assistantName}} là où votre équipe parle déjà"
+          },
+          "workflow": {
+            "browse": "Voir les modèles",
+            "confirm": "Montrez-m'en un",
+            "description": "Transformez une tâche récurrente en workflow que l'équipe peut lancer.",
+            "prompt": "Chaque lundi matin, regarde ce que mes concurrents ont publié la semaine dernière, regroupe-le par thème et donne-moi un tableau comparatif.",
+            "promptConfirm": "L'envoyer à {{assistantName}}",
+            "promptDescription": "Envoyez-le tel quel à {{assistantName}}, ou modifiez d'abord la formulation.",
+            "promptOutcome": "Il lit les sources, regroupe ce qu'il trouve et répond avec le tableau. Si le résultat convient, il propose de garder l'exécution comme workflow.",
+            "promptTitle": "Demandez comme vous le demanderiez à un collègue",
+            "stepRun": "Lancez-le une fois",
+            "stepRunDescription": "Vous voyez le travail terminé avant de vous engager.",
+            "stepSave": "Enregistrez-le, puis donnez-lui un horaire",
+            "stepSaveDescription": "Il tourne sans que personne le demande, et n'importe quel collègue peut le lancer.",
+            "stepTemplate": "Partez d'un modèle",
+            "stepTemplateDescription": "Prenez-en un proche de votre métier plutôt qu'une page blanche.",
+            "title": "Une bonne exécution devient un acquis pour l'équipe"
+          }
+        },
         "invite": {
           "action": "Inviter",
           "description": "Chaque personne ajoutée compte",
