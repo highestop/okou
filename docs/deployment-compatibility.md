@@ -2353,6 +2353,20 @@ A v1–v3-only application is below the rollback floor while v4 records remain.
 Do not shrink the CHECK or cascade away releasing leases. See the linked contract
 for exact DDL timeouts, failure/retry behavior, scale receipts and activation gates.
 
+## API-first usage handoff readers (#34787)
+
+The Pi ownership-transfer manifest and durable continuation readers accept
+optional `apiUsage` metadata. The TypeScript handoff readers ignore unknown
+additive object fields while still validating versions, modes, identities,
+bounds, token quantities and coverage invariants.
+
+Old payloads remain valid. A missing `apiUsage` field means unavailable, not
+zero. This consumer-only slice does not emit the field. The API producer in
+#35413 must not merge or deploy until these readers are deployed and older
+strict readers have drained. After enablement, roll back the producer before
+rolling back the consumer. No database contraction or backfill is required.
+See [API-first run usage handoff](api-run-usage.md).
+
 ## DeepSeek V4.1 Flash Pi coverage
 
 The [V4.1 Pi catalog and deployment contract](../turbo/packages/pi-agent-runtime/src/deepseek-v41-catalog.md)
