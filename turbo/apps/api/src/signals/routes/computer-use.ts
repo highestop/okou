@@ -65,6 +65,16 @@ const unauthorizedComputerUse = Object.freeze({
   }),
 });
 
+const computerUseCommandCreationUnavailable = Object.freeze({
+  status: 403 as const,
+  body: Object.freeze({
+    error: Object.freeze({
+      message: "Computer-use command creation is not available",
+      code: "FORBIDDEN",
+    }),
+  }),
+});
+
 function notFound(message: string) {
   return {
     status: 404 as const,
@@ -232,6 +242,9 @@ const commandCreateInner$ = command(
     );
     signal.throwIfAborted();
 
+    if (result.status === "subject_closed") {
+      return computerUseCommandCreationUnavailable;
+    }
     if (result.status === "no_host") {
       return notFound("No linked computer-use host found");
     }
@@ -286,6 +299,9 @@ const writeCommandCreateInner$ = command(
     );
     signal.throwIfAborted();
 
+    if (result.status === "subject_closed") {
+      return computerUseCommandCreationUnavailable;
+    }
     if (result.status === "no_host") {
       return notFound("No linked computer-use host found");
     }
@@ -365,6 +381,9 @@ const pluginCommandCreateInner$ = command(
     );
     signal.throwIfAborted();
 
+    if (result.status === "subject_closed") {
+      return computerUseCommandCreationUnavailable;
+    }
     if (result.status === "no_host") {
       return notFound("No linked computer-use host found");
     }

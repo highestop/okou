@@ -478,14 +478,14 @@ export function createComputerUseBddApi(context: TestContext) {
     );
   }
 
-  function writeCommandClient() {
-    return setupApp({ context, routes: computerUseRoutes })(
+  function writeCommandClient(signal?: AbortSignal) {
+    return setupApp({ context, routes: computerUseRoutes, signal })(
       computerUseWriteCommandContract,
     );
   }
 
-  function pluginCommandClient() {
-    return setupApp({ context, routes: computerUseRoutes })(
+  function pluginCommandClient(signal?: AbortSignal) {
+    return setupApp({ context, routes: computerUseRoutes, signal })(
       computerUsePluginCommandContract,
     );
   }
@@ -750,9 +750,10 @@ export function createComputerUseBddApi(context: TestContext) {
     async createComputerUseReadCommand(
       auth: ComputerUseAuth,
       body: ComputerUseReadCommandBody,
+      signal?: AbortSignal,
     ): Promise<ComputerUseCommandCreateResponse> {
       const response = await accept(
-        commandClient().create({
+        commandClient(signal).create({
           headers: authenticate(auth),
           body: { timeoutMs: 60_000, ...body },
         }),
@@ -765,9 +766,10 @@ export function createComputerUseBddApi(context: TestContext) {
       auth: ComputerUseAuth,
       body: ComputerUseReadCommandBody,
       statuses: readonly (200 | 400 | 401 | 403 | 404 | 409)[],
+      signal?: AbortSignal,
     ) {
       return await accept(
-        commandClient().create({
+        commandClient(signal).create({
           headers: authenticate(auth),
           body: { timeoutMs: 60_000, ...body },
         }),
@@ -778,9 +780,10 @@ export function createComputerUseBddApi(context: TestContext) {
     async createComputerUseWriteCommand(
       auth: ComputerUseAuth,
       body: ComputerUseWriteCommandBody = DEFAULT_WRITE_COMMAND_BODY,
+      signal?: AbortSignal,
     ): Promise<ComputerUseCommandCreateResponse> {
       const response = await accept(
-        writeCommandClient().create({
+        writeCommandClient(signal).create({
           headers: authenticate(auth),
           body: { timeoutMs: 60_000, ...body },
         }),
@@ -793,9 +796,10 @@ export function createComputerUseBddApi(context: TestContext) {
       auth: ComputerUseAuth,
       statuses: readonly (200 | 400 | 401 | 403 | 404 | 409)[],
       body: ComputerUseWriteCommandBody = DEFAULT_WRITE_COMMAND_BODY,
+      signal?: AbortSignal,
     ) {
       return await accept(
-        writeCommandClient().create({
+        writeCommandClient(signal).create({
           headers: authenticate(auth),
           body: { timeoutMs: 60_000, ...body },
         }),
@@ -806,9 +810,10 @@ export function createComputerUseBddApi(context: TestContext) {
     async createComputerUsePluginCommand(
       auth: ComputerUseAuth,
       body: ComputerUsePluginCommandBody,
+      signal?: AbortSignal,
     ): Promise<ComputerUseCommandCreateResponse> {
       const response = await accept(
-        pluginCommandClient().create({
+        pluginCommandClient(signal).create({
           headers: authenticate(auth),
           body: { ...body, timeoutMs: body.timeoutMs ?? 60_000 },
         }),
@@ -821,9 +826,10 @@ export function createComputerUseBddApi(context: TestContext) {
       auth: ComputerUseAuth,
       body: ComputerUsePluginCommandBody,
       statuses: readonly (200 | 400 | 401 | 403 | 404 | 409)[],
+      signal?: AbortSignal,
     ) {
       return await accept(
-        pluginCommandClient().create({
+        pluginCommandClient(signal).create({
           headers: authenticate(auth),
           body: { ...body, timeoutMs: body.timeoutMs ?? 60_000 },
         }),
