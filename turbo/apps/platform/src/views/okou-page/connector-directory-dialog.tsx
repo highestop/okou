@@ -50,6 +50,7 @@ import {
   ConnectorShelfChips,
   ConnectorShelfSection,
 } from "./components/settings/connector-shelf.tsx";
+import { SshLoadError } from "./ssh-load-error.tsx";
 import { CustomConnectorIcon } from "./components/settings/custom-connector-icon.tsx";
 import { customConnectorTarget } from "./components/settings/custom-connector-display.ts";
 import {
@@ -462,10 +463,26 @@ function DirectoryAttention({
   );
 }
 
+function DirectoryRemoteStatuses({
+  ssh,
+  vnc,
+}: {
+  readonly ssh: React.ReactNode;
+  readonly vnc: React.ReactNode;
+}) {
+  return (
+    <>
+      {ssh}
+      {vnc}
+    </>
+  );
+}
+
 function DirectoryDiscoverPanel({
   model,
   showSsh,
   showVnc,
+  sshStatus,
   vncStatus,
   renderCard,
   search,
@@ -476,6 +493,7 @@ function DirectoryDiscoverPanel({
   readonly model: ConnectorDirectoryModel;
   readonly showSsh: boolean;
   readonly showVnc: boolean;
+  readonly sshStatus: React.ReactNode;
   readonly vncStatus: React.ReactNode;
   readonly renderCard: RenderConnectorCard;
   readonly search: string;
@@ -492,6 +510,7 @@ function DirectoryDiscoverPanel({
     model.matchedConnected.length === 0 &&
     !showSsh &&
     !showVnc &&
+    !sshStatus &&
     !vncStatus
   ) {
     return (
@@ -521,7 +540,7 @@ function DirectoryDiscoverPanel({
   ) {
     return (
       <>
-        {vncStatus}
+        <DirectoryRemoteStatuses ssh={sshStatus} vnc={vncStatus} />
         {attention}
         {model.matchedConnected.length > 0 && (
           <DirectorySection
@@ -558,7 +577,7 @@ function DirectoryDiscoverPanel({
   }
   return (
     <>
-      {vncStatus}
+      <DirectoryRemoteStatuses ssh={sshStatus} vnc={vncStatus} />
       {attention}
       {model.shelfLayout.shelves.map((shelf) => {
         return (
@@ -704,6 +723,7 @@ function DirectoryBody({
   tab,
   showSsh,
   showVnc,
+  sshStatus,
   vncStatus,
   loading,
   model,
@@ -716,6 +736,7 @@ function DirectoryBody({
   readonly tab: ConnectorDirectoryTab;
   readonly showSsh: boolean;
   readonly showVnc: boolean;
+  readonly sshStatus: React.ReactNode;
   readonly vncStatus: React.ReactNode;
   readonly loading: boolean;
   readonly model: ConnectorDirectoryModel;
@@ -734,6 +755,7 @@ function DirectoryBody({
         model={model}
         showSsh={showSsh}
         showVnc={showVnc}
+        sshStatus={sshStatus}
         vncStatus={vncStatus}
         renderCard={renderCard}
         search={search}
@@ -753,6 +775,61 @@ function DirectoryBody({
       onConnectCustom={onConnectCustom}
     />
   );
+}
+
+function useDirectorySshDiscovery(search: string, category: string | null) {
+  const { t } = useTranslation();
+  const sshSummary = useLoadable(sshSummary$);
+  const matchesCategory =
+    category === null || category === REMOTE_ACCESS_CATEGORY;
+  const normalizedSearch = search.trim().toLowerCase();
+  const matchesSsh = matchesCategory && "ssh".includes(normalizedSearch);
+  const sshAvailable =
+    sshSummary.state === "hasData" && sshSummary.data?.configuredCount === 0;
+  const sshStatus = !matchesSsh ? null : sshSummary.state === "hasError" ? (
+    <SshLoadError />
+  ) : sshSummary.state === "loading" ? (
+    <p role="status" className="text-sm text-muted-foreground">
+      {t(($) => {
+        return $.ssh.loading;
+      })}
+    </p>
+  ) : null;
+  return {
+    showSsh: sshAvailable && matchesSsh,
+    sshAvailable,
+    sshStatus,
+  };
+}
+
+function useDirectoryVncDiscovery(search: string, category: string | null) {
+  const { t } = useTranslation();
+  const vncSummary = useLoadable(vncSummary$);
+  const matchesCategory =
+    category === null || category === REMOTE_ACCESS_CATEGORY;
+  const matchesVnc =
+    matchesCategory &&
+    `vnc ${t(($) => {
+      return $.vnc.description;
+    })}`
+      .toLowerCase()
+      .includes(search.trim().toLowerCase());
+  const vncAvailable =
+    vncSummary.state === "hasData" && vncSummary.data?.configuredCount === 0;
+  const vncStatus = !matchesVnc ? null : vncSummary.state === "hasError" ? (
+    <VncLoadError />
+  ) : vncSummary.state === "loading" ? (
+    <p role="status" className="text-sm text-muted-foreground">
+      {t(($) => {
+        return $.vnc.loading;
+      })}
+    </p>
+  ) : null;
+  return {
+    showVnc: vncAvailable && matchesVnc,
+    vncAvailable,
+    vncStatus,
+  };
 }
 
 function DirectoryBrowseView({
@@ -777,33 +854,14 @@ function DirectoryBrowseView({
   readonly onConnectCustom: (connector: CustomConnectorResponse) => void;
 }) {
   const { t } = useTranslation();
-  const summary = useLoadable(sshSummary$);
-  const vncSummary = useLoadable(vncSummary$);
-  const vncAvailable =
-    vncSummary.state === "hasData" && vncSummary.data?.configuredCount === 0;
-  const matchesVnc =
-    (category === null || category === REMOTE_ACCESS_CATEGORY) &&
-    `vnc ${t(($) => {
-      return $.vnc.description;
-    })}`
-      .toLowerCase()
-      .includes(search.trim().toLowerCase());
-  const showVnc = vncAvailable && matchesVnc;
-  const vncStatus = !matchesVnc ? null : vncSummary.state === "hasError" ? (
-    <VncLoadError />
-  ) : vncSummary.state === "loading" ? (
-    <p role="status" className="text-sm text-muted-foreground">
-      {t(($) => {
-        return $.vnc.loading;
-      })}
-    </p>
-  ) : null;
-  const sshAvailable =
-    summary.state === "hasData" && summary.data?.configuredCount === 0;
-  const showSsh =
-    sshAvailable &&
-    (category === null || category === REMOTE_ACCESS_CATEGORY) &&
-    "ssh".includes(search.trim().toLowerCase());
+  const { showSsh, sshAvailable, sshStatus } = useDirectorySshDiscovery(
+    search,
+    category,
+  );
+  const { showVnc, vncAvailable, vncStatus } = useDirectoryVncDiscovery(
+    search,
+    category,
+  );
   const remoteAccessLabel = t(($) => {
     return $.connectors.catalog.remoteAccess;
   });
@@ -869,6 +927,7 @@ function DirectoryBrowseView({
           tab={tab}
           showSsh={showSsh}
           showVnc={showVnc}
+          sshStatus={sshStatus}
           vncStatus={vncStatus}
           loading={loading}
           model={model}
