@@ -49,6 +49,6 @@ requires it. Keep async work attached to its owning cancellation signal;
 
 Show each finding or removal with its file, behavior, and evidence. Do not assign
 severity from a regex match or file length alone. Run checks for the changed
-scope and relevant consumers under [project verification](../../../CLAUDE.md#development-and-verification).
+scope and relevant consumers under [project verification](../../../AGENTS.md#development-and-verification).
 Report remaining uncertainty explicitly. Create a PR when the caller requested
 one; a research or review request alone does not authorize implementation.

@@ -75,7 +75,7 @@ alive. Vercel owns its separate function lifecycle; this policy does not change 
 
 1. Branch from current `main`, implement a focused change, and inspect its diff.
 2. Select checks for the changed files and consumers using
-   [project verification](CLAUDE.md#development-and-verification).
+   [project verification](AGENTS.md#development-and-verification).
 3. For tests, use the matching [testing guide](docs/testing.md). Prefer package
    scope, such as `pnpm -F @okouai/app exec vitest run <test-file>` from `turbo`.
    Run only one Vitest process at a time. Do not make full-repository build or

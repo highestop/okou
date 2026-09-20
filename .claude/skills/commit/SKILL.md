@@ -13,7 +13,7 @@ or both when a commit is requested.
 
 1. Inspect `git status --short`, `git diff`, and `git diff --cached`. Stage only
    the requested change; preserve unrelated worktree and staged content.
-2. Follow [development and verification](../../../CLAUDE.md#development-and-verification)
+2. Follow [development and verification](../../../AGENTS.md#development-and-verification)
    for the affected files, workspaces, generated outputs, and runtime consumers.
    Read the matching [testing guide](../../../docs/testing.md) when behavior
    changes.

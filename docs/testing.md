@@ -82,6 +82,6 @@ Read only the guides matching the work:
 | Python addon             | [Addon testing](testing/mitm-addon-testing.md)            |
 
 Select verification from the changed surface and consumers, as described in
-[the project guidelines](../CLAUDE.md#development-and-verification). Run one
+[the project guidelines](../AGENTS.md#development-and-verification). Run one
 Vitest process at a time. Do not run unrelated suites or repeat passed checks
 without a new change, failure, or unresolved concern.

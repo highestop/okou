@@ -32,4 +32,4 @@ stylesheets, first-party selectors, or a second token system.
 Install workspace dependencies from `turbo/`. Package scripts in
 [package.json](package.json) define lint, type checks, tests, and component
 generation. Select the checks and consumers relevant to the change using
-[project verification](../../../CLAUDE.md#development-and-verification).
+[project verification](../../../AGENTS.md#development-and-verification).
