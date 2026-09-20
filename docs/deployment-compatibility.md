@@ -247,9 +247,16 @@ metadata from the old authoritative columns, rotates changed manifest CAS hashes
 and keeps outgoing API readers working with temporary defaults and a pointer
 projection trigger. IDs, stored byte paths and share policies do not change.
 See the [runtime retirement matrix](database/hosted-publication-retirement.md#runtime-version-column-retirement).
-The later physical-drop release removes the projection and columns only after
-this runtime cleanup is serving and defines the supported API rollback floor;
-it must not be bundled into the same production release.
+The separately gated physical-drop migration removes the four columns, their
+two old indexes and the projection trigger/function. It verifies the retained
+manifest versions, public bindings and persisted SQL dependencies before
+dropping anything, and preserves content rows and share identities. This
+contraction remains draft until the runtime cleanup has shipped in its own
+production release and its predecessor has drained. The contraction installs
+that runtime transition's canonical main commit as the API rollback floor in
+the main-owned resolver before the physical drop deploys. Its API-only floor
+does not constrain the independently retained Runner tag. A migration journal
+entry cannot prove this serving/rollback boundary.
 
 New prepares bind each upload URL to its declared SHA-256 through the signed
 `x-amz-checksum-sha256` query parameter. Existing CLIs can keep sending only
