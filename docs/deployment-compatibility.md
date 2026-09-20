@@ -2158,11 +2158,12 @@ The receipt-capable writer from [#32880](https://github.com/vm0-ai/vm0/pull/3288
 Cancelling a connector connection aborts the current App attempt: owned requests
 and polling stop, its popup closes when the browser still permits access, busy controls are
 released, and unfinished local continuations (including account naming and Chat
-callbacks) must not start or update a newer attempt. Explicit dialog close and
-Escape have the same meaning; outside presses do not cancel pending work. Once
-the App has confirmed success, the action is labelled Close rather than Cancel.
-Provider isolation policies can sever the popup handle, so closing that external
-window is best-effort and is not required to release the App's attempt.
+callbacks) must not start or update a newer attempt. The dialog's Close control
+and Escape have the same meaning; outside presses do not cancel pending work.
+Connector authorization progress surfaces add no separate Cancel action; forms
+that already provide a general Cancel action keep it. Provider isolation
+policies can sever the popup handle, so closing that external window is
+best-effort and is not required to release the App's attempt.
 
 This is **local cancellation**, not a provider revocation or an API transaction
 rollback. The API may already have claimed OAuth state and may finish persisting
