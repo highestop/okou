@@ -749,19 +749,29 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Setup R2 sccache
+        uses: ./.github/actions/setup-r2-sccache
+        with:
+          architecture: ${{ matrix.id }}
+          r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
+          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          r2-account-id: ${{ vars.R2_ACCOUNT_ID }}
+          r2-bucket-name: ${{ vars.R2_USER_STORAGES_BUCKET_NAME }}
+
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: crates -> target
-          shared-key: ${{ matrix.cacheSuffix }}-rootfs-process
+          shared-key: ${{ matrix.cacheSuffix }}-rootfs-process-local
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Cross-compile rootfs process tests for ${{ matrix.label }}
         working-directory: crates
         run: |
-          TEST_BIN=$(cargo test --no-run --profile ci --target "$TARGET_TRIPLE" \
+          TEST_BIN=$(cargo test --no-run --profile local --target "$TARGET_TRIPLE" \
             -p runner --bin runner --message-format=json | \
             jq -r 'select(.reason == "compiler-artifact" and .target.name == "runner" and .profile.test) | .executable // empty')
           test -n "$TEST_BIN"
+          echo "Rootfs process test executable: $(stat -c '%s' "$TEST_BIN") bytes ($TEST_BIN)"
           cp "$TEST_BIN" target/runner-rootfs-process-test
           echo "TEST_BIN=crates/target/runner-rootfs-process-test" >> "$GITHUB_ENV"
 
