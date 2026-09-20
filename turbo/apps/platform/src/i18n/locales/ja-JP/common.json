@@ -659,7 +659,6 @@
       "previewSlide": "スライドのプレビュー {{slideNumber}}",
       "previewVoice": "音声{{title}}を試聴",
       "previewWebsite": "Web サイト テンプレートのプレビュー {{title}}",
-      "previousHtmlPreview": "{{title}} 前の HTML プレビュー",
       "previousSlide": "前のスライドをプレビューする",
       "recommended": "おすすめ",
       "renameImportedTemplate": "テンプレート名を変更",

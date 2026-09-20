@@ -679,7 +679,6 @@
       "previewSlide": "Vista previa de la diapositiva {{slideNumber}}",
       "previewVoice": "Escuchar la voz {{title}}",
       "previewWebsite": "Vista previa de la plantilla de sitio web {{title}}",
-      "previousHtmlPreview": "Vista previa HTML anterior de {{title}}",
       "previousSlide": "Vista previa de la diapositiva anterior",
       "recommended": "Recomendado",
       "renameImportedTemplate": "Cambiar nombre de la plantilla",

@@ -660,7 +660,6 @@
       "previewSlide": "Preview slide {{slideNumber}}",
       "previewVoice": "Preview voice {{title}}",
       "previewWebsite": "Preview website template {{title}}",
-      "previousHtmlPreview": "{{title}} previous HTML preview",
       "previousSlide": "Preview previous slide",
       "recommended": "Recommended",
       "renameImportedTemplate": "Rename template",
