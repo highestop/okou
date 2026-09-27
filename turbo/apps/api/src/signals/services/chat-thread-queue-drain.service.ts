@@ -291,9 +291,9 @@ export const pickQueuedChatThread$ = command(
  * The per-thread scheduler entry for new input: ingress, web sends, workflow
  * events, cancel, resume and recovery converge here after appending input.
  * Every enqueue records the thread as queued first, so queued input always
- * has a row even when a running run takes it as steerable input or the
- * takeover at run end never happens. Then a running run is notified, or the
- * thread is picked once.
+ * has a row even when a running run takes it as steerable input or no slot
+ * hand-off reaches the thread. Then a running run is notified, or the thread
+ * is picked once.
  */
 export const drainChatThreadQueueForThread$ = command(
   async (
@@ -319,27 +319,6 @@ export const drainChatThreadQueueForThread$ = command(
 
     const picked = await set(pickQueuedChatThread$, input, signal);
     return picked.automationResult;
-  },
-);
-
-/**
- * A run of this thread just released its active slot, so the thread's next
- * input takes that slot over without the organization pre-check. The queue
- * head is read from `chat_events` directly. Enqueue already recorded the
- * thread's row, so input that cannot start now stays pickable.
- */
-export const takeOverChatThreadQueue$ = command(
-  async (
-    { set },
-    input: QueueLaunchInput,
-    signal: AbortSignal,
-  ): Promise<void> => {
-    await set(
-      launchChatThreadQueueHead$,
-      { ...input, apiStartTime: input.apiStartTime ?? now() },
-      signal,
-    );
-    signal.throwIfAborted();
   },
 );
 
@@ -412,40 +391,18 @@ export const pickOrgQueuedChatThreads$ = command(
   },
 );
 
-/** Resolve a terminal run's thread before entering the shared scheduler. */
-export const drainChatThreadQueueForRun$ = command(
-  async (
-    { set },
-    input: {
-      readonly runId: string;
-      readonly dispatchFailedCallbacks: DispatchFailedRunCallbacks;
-      readonly apiStartTime: number;
-    },
-    signal: AbortSignal,
-  ): Promise<void> => {
-    const db = set(writeDb$);
-    const [run] = await db
-      .select({ chatThreadId: agentRuns.chatThreadId })
-      .from(agentRuns)
-      .where(
-        and(eq(agentRuns.id, input.runId), isNotNull(agentRuns.triggerSource)),
-      )
-      .limit(1);
-    signal.throwIfAborted();
-    if (!run?.chatThreadId) {
-      return;
-    }
-    await set(
-      takeOverChatThreadQueue$,
-      {
-        chatThreadId: run.chatThreadId,
-        apiStartTime: input.apiStartTime,
-        dispatchFailedCallbacks: input.dispatchFailedCallbacks,
-      },
-      signal,
-    );
-  },
-);
+/** The chat thread whose queue a run's end wakes, or null for other runs. */
+export async function queueThreadIdForRun(
+  db: Db,
+  runId: string,
+): Promise<string | null> {
+  const [run] = await db
+    .select({ chatThreadId: agentRuns.chatThreadId })
+    .from(agentRuns)
+    .where(and(eq(agentRuns.id, runId), isNotNull(agentRuns.triggerSource)))
+    .limit(1);
+  return run?.chatThreadId ?? null;
+}
 
 /**
  * Pick one thread in the cron pass. Reaching the cron at all means an upstream

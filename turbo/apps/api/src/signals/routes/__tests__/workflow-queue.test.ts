@@ -449,7 +449,6 @@ async function executeDueWorkflowAutomations(
 
 async function cleanupWorkflowQueueFixtures(args: {
   readonly threadId: string;
-  readonly orgId: string;
   readonly runIds: readonly string[];
 }): Promise<void> {
   await accept(
@@ -457,7 +456,6 @@ async function cleanupWorkflowQueueFixtures(args: {
       body: {
         chatThreadIds: [args.threadId],
         runIds: [...args.runIds],
-        orgIds: [args.orgId],
         exportJobIds: [],
       },
     }),
@@ -542,11 +540,10 @@ describe("workflow queue", () => {
     });
 
     it("recovers a stale automation event after its terminal callback is missed", async () => {
-      const { scenario, automation, firstRunId } = prepared;
+      const { automation, firstRunId } = prepared;
 
       await cleanupWorkflowQueueFixtures({
         threadId: automation.threadId,
-        orgId: scenario.orgId,
         runIds: [firstRunId],
       });
 
@@ -597,7 +594,6 @@ describe("workflow queue", () => {
 
     await cleanupWorkflowQueueFixtures({
       threadId: automation.threadId,
-      orgId: scenario.orgId,
       runIds: [firstRunId],
     });
 

@@ -2,124 +2,31 @@ import { command } from "ccstate";
 
 import { env } from "../../lib/env";
 import { logger } from "../../lib/log";
-import { now } from "../../lib/time";
 import { deleteS3Objects } from "../external/s3";
 import { tapError } from "../utils";
-import { activatePendingRun$ } from "./agent-run-activation.service";
+import { writeDb$ } from "../external/db";
 import {
   dispatchCompleteSideEffectsCore$,
   type DispatchCompleteSideEffectsInput,
 } from "./agent-webhook-complete.service";
 import { dispatchFailedRunCallbacks } from "./agent-run-callback.service";
-import { pickOrgQueuedChatThreads$ } from "./chat-thread-queue-drain.service";
-import { piApiFirstTurnObjectKey } from "./pi-api-first-turn-config";
 import {
-  promoteNextQueuedRun$,
-  publishQueueMarkerNotification,
-  staleQueueOrgIds$,
-} from "./run-queue.service";
+  pickOrgQueuedChatThreads$,
+  pickQueuedChatThread$,
+  queueThreadIdForRun,
+} from "./chat-thread-queue-drain.service";
+import { piApiFirstTurnObjectKey } from "./pi-api-first-turn-config";
 
 const L = logger("RunLifecycle");
 
-/** Promote one queued run and finish its commit-owned activation. */
-export const drainOrgQueue$ = command(
-  async (
-    { set },
-    args: { readonly orgId: string },
-    signal: AbortSignal,
-  ): Promise<number> => {
-    let finishCommittedDrain = false;
-    const committedSignal = new AbortController().signal;
-    while (true) {
-      const promotion = finishCommittedDrain
-        ? await set(promoteNextQueuedRun$, args, committedSignal)
-        : await set(promoteNextQueuedRun$, args, signal);
-      if (signal.aborted) {
-        L.debug("Request aborted after queued run promotion commit", {
-          runId:
-            promotion?.kind === "terminal"
-              ? promotion.runId
-              : promotion?.activation.runnerNotification.runId,
-          orgId: args.orgId,
-        });
-      }
-      if (!promotion) {
-        if (!finishCommittedDrain) {
-          signal.throwIfAborted();
-        }
-        return 0;
-      }
-      if (promotion.kind === "terminal") {
-        finishCommittedDrain = true;
-        await publishQueueMarkerNotification({
-          orgId: promotion.orgId,
-          queueMarkerNotification: promotion.queueMarkerNotification,
-        });
-        if (signal.aborted) {
-          L.debug("Request aborted while publishing failed queue state", {
-            runId: promotion.runId,
-            orgId: promotion.orgId,
-          });
-        }
-        await set(
-          dispatchCompleteSideEffectsCore$,
-          {
-            kind: "terminal",
-            runId: promotion.runId,
-            orgId: promotion.orgId,
-            status: "failed",
-            error: promotion.error,
-          },
-          committedSignal,
-        );
-        if (signal.aborted) {
-          L.debug("Request aborted after failed queue side effects", {
-            runId: promotion.runId,
-            orgId: promotion.orgId,
-          });
-        }
-        continue;
-      }
-      const activation = promotion.activation;
-      const activationScheduledAt = now();
-      await tapError(
-        set(activatePendingRun$, { activation, activationScheduledAt }),
-        (error) => {
-          L.error("Failed to activate promoted queued run", {
-            runId: activation.runnerNotification.runId,
-            orgId: args.orgId,
-            error,
-          });
-        },
-      );
-      if (signal.aborted) {
-        L.debug("Request aborted after queued run activation", {
-          runId: activation.runnerNotification.runId,
-          orgId: args.orgId,
-        });
-      }
-      return 1;
-    }
-  },
-);
-
+/** Hand newly available org capacity to queued chat threads. */
 export const drainOrgQueueToCapacity$ = command(
   async (
     { set },
     args: { readonly orgId: string },
     signal: AbortSignal,
   ): Promise<number> => {
-    let drained = 0;
-    while (true) {
-      const promoted = await set(drainOrgQueue$, args, signal);
-      signal.throwIfAborted();
-      if (promoted === 0) {
-        break;
-      }
-      drained += promoted;
-    }
-    // Queued threads take the raised capacity after legacy queued runs.
-    drained += await set(
+    const drained = await set(
       pickOrgQueuedChatThreads$,
       {
         orgId: args.orgId,
@@ -133,25 +40,51 @@ export const drainOrgQueueToCapacity$ = command(
   },
 );
 
-export const drainStaleQueues$ = command(
+/**
+ * A run's active row was just deleted, so its organization slot is free. The
+ * slot goes to the run's own thread first, then to the organization's oldest
+ * waiting thread. Every run-end transaction that deletes an active row
+ * (Runner completion, cancel, claim failure, cron timeout) calls this after
+ * commit and after the run's terminal callbacks, so no end path owns a wakeup
+ * of its own. Membership cleanup, which frees slots without ending a thread's
+ * turn, and the stale-terminal sweep leave waiting threads to the cron
+ * drain. Every enqueue records its thread as queued, so both picks go through
+ * the queued-thread lease and its thread and capacity checks, and the
+ * launch's final admission stays authoritative.
+ */
+export const handOffReleasedSlot$ = command(
   async (
     { set },
-    orgIds: readonly string[] | null,
+    args: { readonly runId: string; readonly orgId: string },
     signal: AbortSignal,
-  ): Promise<number> => {
-    const staleOrgIds = await set(staleQueueOrgIds$, orgIds, signal);
+  ): Promise<void> => {
+    const chatThreadId = await queueThreadIdForRun(set(writeDb$), args.runId);
     signal.throwIfAborted();
-    let drained = 0;
-    for (const orgId of staleOrgIds) {
-      L.debug("Draining stale queue", { orgId });
-      drained += await set(drainOrgQueue$, { orgId }, signal);
+    if (chatThreadId) {
+      const own = await set(
+        pickQueuedChatThread$,
+        { chatThreadId, dispatchFailedCallbacks: dispatchFailedRunCallbacks },
+        signal,
+      );
       signal.throwIfAborted();
+      if (own.outcome.kind === "launched") {
+        return;
+      }
     }
-    return drained;
+    await set(
+      pickOrgQueuedChatThreads$,
+      {
+        orgId: args.orgId,
+        untilFull: false,
+        dispatchFailedCallbacks: dispatchFailedRunCallbacks,
+      },
+      signal,
+    );
+    signal.throwIfAborted();
   },
 );
 
-/** Dispatch terminal effects, clean staging data, and release the org slot. */
+/** Dispatch terminal effects, clean staging data, and hand off a released slot. */
 export const dispatchCompleteSideEffects$ = command(
   async (
     { get, set },
@@ -177,34 +110,17 @@ export const dispatchCompleteSideEffects$ = command(
       );
       signal.throwIfAborted();
     }
-    if (input.kind !== "terminal") {
+    if (!input.slotReleased) {
       return;
     }
     await tapError(
-      set(drainOrgQueue$, { orgId: input.orgId }, signal),
-      (error) => {
-        L.error("Failed to drain org queue", {
-          runId: input.runId,
-          orgId: input.orgId,
-          error,
-        });
-      },
-    );
-    signal.throwIfAborted();
-    // The run's own thread took its slot over during terminal callbacks; a
-    // slot still free goes to the organization's oldest queued thread.
-    await tapError(
       set(
-        pickOrgQueuedChatThreads$,
-        {
-          orgId: input.orgId,
-          untilFull: false,
-          dispatchFailedCallbacks: dispatchFailedRunCallbacks,
-        },
+        handOffReleasedSlot$,
+        { runId: input.runId, orgId: input.orgId },
         signal,
       ),
       (error) => {
-        L.error("Failed to pick queued chat thread", {
+        L.error("Failed to hand off released run slot", {
           runId: input.runId,
           orgId: input.orgId,
           error,
