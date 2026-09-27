@@ -40,15 +40,11 @@ or pending sessions. This is the bounded pre-GA cutover exception, not a claim
 that the old and new locking protocols coordinate with each other. The API
 contracts and stored shapes do not change, and no migration is required.
 
-SSH and Cloudflare Access are GA. Their creation paths first gain the same
-exact-primary-key conflict recovery while retaining the existing resource-ID
-advisory lock. Removing it immediately could expose an unhandled unique-key
-failure in an older concurrent writer, including two admins creating the same
-organization-scoped Access configuration. Remove this one remaining acquisition
-only after the preparation version covers every serving writer and older
-transactions have drained; supported rollback targets must also retain this
-conflict recovery. That follow-up keeps the owner lock and removes the
-resource-ID lock, its exemption, and this rollout condition together.
+SSH and Cloudflare Access creation use the same exact-primary-key conflict
+recovery, including two admins creating the same organization-scoped Access
+configuration. Their resource-ID advisory lock is retired after the #37009
+preparation reached production. The separate owner lock remains; supported
+rollback targets must include the conflict recovery under the API floor below.
 
 ## Resource and lifecycle synchronization cleanup (2026-09-26)
 
@@ -79,27 +75,20 @@ transaction rollback and deletion-conflict responses.
 Browser profile creation prepares the external profile outside a transaction,
 then uses the thread's unique profile key to select the owner. Unused external
 profiles are reclaimed. Cleanup checks the target profile and exact session
-identity/version before removing state. **The existing profile advisory key
-remains for the preparation release:** an older cleanup reads profile A and
-then deletes sessions by thread, so it can otherwise delete a replacement B.
-Old and new callers still share the key around their database mutations; new
-provider creation no longer holds it during the network request.
+identity/version before removing state. The profile advisory key is retired;
+the exact cleanup predicates prevent cleanup of profile A from deleting a
+replacement B. Provider creation remains outside the transaction.
 
 The retired Native Morning Brief collector was the only production consumer
 of `chat_threads.provenance`. Its writes, service, and implementation-only
 tests are removed; the nullable column and historical migrations remain.
 Automation resolution now uses the existing unique owner binding and its row
-lock, without writing a reused destination thread. **Its existing resolver
-advisory key remains for the preparation release:** an outgoing resolver
-reads the destination before locking its binding and throws if a concurrent
-new resolver rebound it in that interval.
-
-Remove the Browser profile and automation resolver keys, their exemptions, and
-these two preparation requirements in a later release after this preparation
-version covers every serving writer, outgoing requests have drained, and all
-supported API rollback targets include these changes. Both are GA paths;
-Morning Brief's use of the shared resolver is not covered by the non-GA
-Official Workflows catalog switch. No new lock or fallback is introduced.
+lock, without writing a reused destination thread. Its resolver advisory key
+is retired. The binding is locked before its destination is read, so concurrent
+resolvers observe the current binding instead of an earlier destination.
+Browser and the shared Morning Brief resolver are GA paths; both rely on the
+#37009 preparation and the API rollback floor below, not the non-GA catalog
+switch. No new lock or fallback is introduced.
 
 ## Scoped advisory cleanup and owner-row preparation (2026-09-26)
 
@@ -110,7 +99,7 @@ Nine more caller entrypoints stop acquiring redundant advisory locks:
   run identity in its own transaction.
 - Browser screenshot persistence is one UPSERT on the thread primary key.
 - Standalone SSH credential and Cloudflare Access creation retain exact-ID
-  conflict recovery and the creation-ID preparation key, without the owner
+  conflict recovery, without the retired creation-ID key or the owner
   key. SSH host deletion and host-key reset retain their exact host row lock,
   ownership, generation, and foreign-key checks without the owner key.
 - Connector account rename retains the exact account row lock and an
@@ -156,31 +145,101 @@ the singleton primary key for first publication and an expected-pointer UPDATE
 thereafter, and commits the pointer, revisions, artifact heads, and
 reconciliation work together. A losing first publisher rolls back all writes.
 
-The publisher retains its exclusive catalog advisory key because outgoing
-readers do not yet lock the singleton. Official run admission now takes its
-credit plan row before Workflow/Automation rows, matching reconciliation; the
-five organization-key acquisition sites remain because outgoing admission
-still uses the inverse row order. Remove the publisher key after all old
-readers drain, and the organization keys after all old writers drain. Serving
-versions and supported rollback targets must include this preparation. These
-shared paths include GA Morning Brief, regardless of catalog discovery flags.
+The publisher's catalog advisory key and the normal-admission organization key
+are retired after this preparation reached production.
+Official run admission takes its credit plan row before Workflow/Automation
+rows, matching reconciliation; the singleton protects accepted catalog reads
+and publication. These shared paths include GA Morning Brief, regardless of
+catalog discovery flags. Copy has a separate conflict-recovery preparation
+below; failed Run persistence and uninstall do not enter the plan lock and no
+longer acquire the organization key. Reconciliation retains its organization
+key for the additional Morning Brief row-order preparation below.
 
 Built-in generation admission now locks the existing Run row with
 `FOR NO KEY UPDATE` before expiring and counting admissions and inserting the
 winner. The three-active and fifty-started limits remain, and the transaction
-ends before provider requests. Its original advisory key remains until all
-serving admission writers and rollback targets use the Run row and outgoing
-transactions have drained; old count-then-insert writers otherwise do not
-coordinate with the new row protocol.
+ends before provider requests. Its original advisory key is retired; serving
+admission writers and supported rollback targets use the same Run row protocol.
 
 User export now claims through the existing active-job partial unique index
 before checking the completed-job cooldown. A conflicting request returns the
 active job from a no-op conflict UPDATE, without a second-read gap or changing
 its timestamps. A new claim that fails the twenty-four-hour cooldown rolls
-back, and only a new accepted claim enqueues work. The GA admission key remains
-until every serving and supported rollback writer uses this protocol and old
-admission transactions drain. An outgoing writer still uses a bare INSERT and
-would otherwise expose an unhandled unique violation during overlap.
+back, and only a new accepted claim enqueues work. The GA admission key is
+retired; serving and supported rollback writers use this conflict-handling
+protocol rather than a bare INSERT.
+
+## Prepared advisory key retirement and writer preparation (2026-09-27)
+
+The supported production aliases and cron use API **1.682.4**, commit
+`931167c9d234821a3ffd186d7493058e92631cb3`, which includes #37009's replacement
+protocols. Current production was verified on 2026-09-27. For this cutover,
+Ethan confirmed production readiness and excluded retained deployment URLs
+from the supported serving surface; their continued existence is not a
+retirement gate. This does not claim that the retained deployments were deleted
+or that their endpoints reject requests.
+
+Seven prepared acquisition sites now retire: Browser profile, automation
+destination resolver, SSH creation-ID, user export admission, built-in
+generation admission, Official catalog publisher, and the Official
+normal-admission organization site.
+
+**API rollback floor: `c639e3397602b5c9b049315c7a99f5ed2e23e660`** (#37009).
+`.github/scripts/resolve-production-rollback-target.sh` rejects older API
+artifacts before artifact selection. A supported rollback retains the same
+constraint, existing-owner-row, and catalog protocols even if it still acquires
+the retired advisory keys. No schema migration is needed for this retirement.
+
+Morning Brief dormant reconciliation needs one further preparation. Its
+reservation/staging paths already take native owner authority before the
+Workflow, but validation/finalization in API 1.682.4 take the same rows in the
+reverse order. The organization key currently serializes those transactions.
+Validation/finalization now follow native authority, Workflow, then
+Automation/identity, reusing the existing locks. Keep the reconciliation
+organization key until this preparation covers serving and supported rollback
+versions and outgoing reconciliation transactions drain. #37009 alone does not
+satisfy this new gate: a new reservation without the organization key could hold
+native authority while an outgoing validation holds the Workflow, leaving each
+waiting for the other's row. The native authority still owns the selected
+Morning Brief lineage and first-materialization mirror; it is not redundant.
+
+Official failed Run persistence and installed uninstall no longer acquire the
+organization advisory key. Both retain the accepted-catalog singleton read,
+the existing parent/Workflow/Automation row protection, and exact installation
+and revision validation. The failed Run branch does not admit credit, and
+uninstall performs provider cleanup after commit. Neither enters the credit
+plan after Workflow rows, so these removals do not depend on the separate
+normal-admission ordering preparation above.
+
+Workflow event admission now acquires the queue key only for schedule
+automations, including manual schedule executions that must coordinate with
+cron coalescing. Event automations retain their delivery identities, source
+transition CAS, transactional event insertion, and final Run claim. Connector
+and check-in rewards have no total-count cap: their shared redemption helper
+retains the exact reward key, claim and credit transaction but skips the owner
+key and count query. Capped rewards keep their existing protocol. Old and new
+requests still coordinate on each reward identity; no migration or rollout
+wait is required for these narrower entrances.
+
+Official copy now handles only the private owner/Agent/name unique constraint
+after the complete copy transaction has rolled back, returning the existing
+name-conflict response and cleaning up the unpublished volume. Different
+Official source installations can target the same private name without sharing
+a source row, so row protection alone cannot replace this conflict handling.
+The copy organization key remains until this preparation covers all serving
+writers, outgoing copy requests have drained, and supported rollback targets
+include it. The earlier #37009 preparation does not contain this recovery.
+
+Device authorization prepares tokens before its commit transaction. The
+existing connector account target serializes start and completion; the exact
+poll claim, connector credentials, and completion marker now commit together.
+A superseded claim writes no credentials, and a failed credential write also
+rolls back the session transition. Provider work and post-commit cleanup remain
+outside the transaction. The device-specific key stays on start and completion
+until every serving and supported rollback writer uses this atomic protocol
+and old requests drain: an outgoing completion can otherwise persist stale
+credentials in its separate transaction after a replacement start. No new lock
+key, lock table, schema migration, or persisted shape is introduced.
 
 ## Workflow import source column (2026-09-25)
 
