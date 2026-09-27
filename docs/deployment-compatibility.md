@@ -80,15 +80,19 @@ Old and new instances during deploy:
   `chat_events_pending_queue_idx`, and neither expects an active row for a
   queued run.
 
-## Queue response fields made optional (2026-09-27)
+## Queue response fields removed (2026-09-27)
 
 No run waits in a queue since queued runs were retired, so `GET /api/runs/queue`
-always returns `queue: []` and `estimatedTimePerRun: null`. The App never
-rendered either field. The contract now marks both optional, and the API keeps
-sending them because older App builds still require them when they parse the
-response. A later change removes them from the API once this App is live and
-the client-version floor excludes those builds; the App built from this change
-already tolerates their absence. `runningTasks` and `concurrency` are unchanged.
+returned `queue: []` and `estimatedTimePerRun: null`, which the App never
+rendered. #37079 made both optional in the contract; App builds from `0.973.0`
+tolerate their absence, and #37093 raised the client-version floor to
+`0.973.0`. This change removes both fields and `queueEntrySchema` from the
+contract and the API response. The floor and this removal ship in the same or
+consecutive API releases, so every App build that can still reach this API
+parses the response without them; older builds receive `426` first.
+`runningTasks` and `concurrency` are unchanged. Rolling the API back below
+#37093 is unaffected: older APIs still send the fields and the current App
+ignores them.
 
 ## GitHub direct-chat readers retired (2026-09-27)
 
@@ -105,9 +109,17 @@ absent. No producer has existed since #24941, so no such payload or pending
 dispatch queries, so historical rows are never dispatched as HTTP callbacks.
 Persisted `context_type = 'github'` events and GitHub source annotations still
 parse and render; like `automation` and `goal`, a `github` context can no
-longer route a queued user message. The `chat_github_context` and
-`github_chat_thread_routes` tables remain until a later migration drops them.
-No DB, App, CLI or public contract changes.
+longer route a queued user message. No App, CLI or public contract changes.
+
+Migration `1270_drop_github_chat_tables` then drops `chat_github_context` and
+`github_chat_thread_routes`, and the queued-event monitor stops checking
+`github` contexts. The older API still has GitHub readers for both tables, but
+they only run for a `github` context event or a GitHub delivery callback, and
+production has neither pending (zero `github` context events; one delivered
+`github:chat` callback). Its queued-event monitor queries a context table only
+for context types present among the scanned events, so it never reaches the
+dropped table. `context_type = 'github'` stays in the `chat_events` check
+constraint as a historical value.
 
 ## pgstattuple extension dropped (2026-09-26)
 
