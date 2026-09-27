@@ -589,8 +589,9 @@ Examples:
   Keep it alive:              okou browser lease
   Create another browser:     okou browser new --name booking --country us
   Use the browser:            agent-browser --session ${DEFAULT_AGENT_BROWSER_SESSION} open https://example.com
-  Share live view:            okou browser view
   Request native input:       okou browser input-request --field '{"key":"username","label":"Email","fieldKind":"username","required":true,"target":"@e1"}' --callback-prompt "Continue after the user enters their email"
+  Request login credentials:  okou browser input-request --field '{"key":"username","label":"Email","fieldKind":"username","required":true,"target":"@e1"}' --field '{"key":"password","label":"Password","fieldKind":"password","required":true,"target":"@e2"}' --callback-prompt "Continue the login after the user enters their credentials"
+  Request a one-time code:    okou browser input-request --field '{"key":"code","label":"Verification code","fieldKind":"one_time_code","required":true,"target":"@e3"}' --callback-prompt "Continue the login after the user enters their code"
   Request a number:           okou browser input-request --field '{"key":"quantity","label":"Quantity","fieldKind":"number","required":false,"target":"@e2"}' --callback-prompt "Continue after the user enters a quantity"
   Request a native slider:    okou browser input-request --field '{"key":"level","label":"Level","fieldKind":"range","required":true,"target":"@e2"}' --callback-prompt "Continue after the user confirms the slider"
   Request a native color:     okou browser input-request --field '{"key":"color","label":"Color","fieldKind":"color","required":true,"target":"@e2"}' --callback-prompt "Continue after the user chooses a color"
@@ -598,6 +599,7 @@ Examples:
   Request a checkbox:         okou browser input-request --field '{"key":"consent","label":"Consent","fieldKind":"checkbox","required":true,"target":"@e4"}' --callback-prompt "Continue after the user confirms the checkbox"
   Request a radio group:      okou browser input-request --field '{"key":"delivery","label":"Delivery","fieldKind":"radio","required":true,"target":"@e5"}' --callback-prompt "Continue after the user chooses a delivery option"
   Request a local file:       okou browser input-request --field '{"key":"document","label":"Document","fieldKind":"file","required":true,"target":"@e6"}' --callback-prompt "Continue after the user chooses a website file"
+  View browser / takeover:   okou browser view
 
 Notes:
   - The browser outlives this run; the user can keep working in it from the viewer link
@@ -610,6 +612,9 @@ Notes:
   - Resolving an @eN ref focuses it but never types, clicks, or submits the website form
   - input-request failures identify a safe error code, affected --field position when known, and next action
   - input-request --json errors are one JSON object on stderr and exit nonzero
-  - After input-request succeeds, return its exact URL and run no later Browser command in this turn
-  - To hand the Browser to the user, return the exact okou browser view URL, explain the step, ask for a chat reply when finished or blocked, and stop using the Browser in this turn`,
+  - When native input is enabled, prefer input-request for user-held values in supported exact controls, including passwords and one-time codes; use agent-browser for ordinary form values
+  - Never put user-held credentials or codes in CLI arguments, the callback prompt, or chat; input-request fills controls but does not submit the website form
+  - After input-request succeeds, return its exact URL and run no later Browser command in this turn; on callback, inspect the page, submit if needed, and verify
+  - Direct Browser takeover is a last resort for unsupported or unavailable input. Return the exact okou browser view URL, explain the step, ask for a chat reply when finished or blocked, and stop using the Browser in this turn
+  - An explicit user request to view the Browser is not a takeover; sharing the current view URL is fine`,
   );

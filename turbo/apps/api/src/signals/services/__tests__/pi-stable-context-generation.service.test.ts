@@ -1161,6 +1161,7 @@ describe("Pi stable context generation fences", () => {
         discordEnabled: false,
         deliveryFormatGuidanceEnabled: false,
         presentationConvertEnabled: false,
+        browserNativeInputEnabled: false,
         customConnectorMcpEnabled: false,
         triggerSource: "web" as const,
         cloudBrowserEnabled: undefined,
@@ -1272,6 +1273,10 @@ describe("Pi stable context generation fences", () => {
     expect(pending?.input?.semantic?.promptInputs).not.toHaveProperty(
       "runUsageEnabled",
     );
+    expect(pending?.input?.semantic?.promptInputs).toHaveProperty(
+      "browserNativeInputEnabled",
+      false,
+    );
     expect(pending?.input?.prompt.tools).toContain(
       "- Current Run usage: use `okou run usage --json` to inspect observed provider-token usage for the currently assigned Run.",
     );
@@ -1371,6 +1376,7 @@ describe("Pi stable context generation fences", () => {
         discordEnabled: false,
         deliveryFormatGuidanceEnabled: false,
         presentationConvertEnabled: false,
+        browserNativeInputEnabled: false,
         customConnectorMcpEnabled: false,
         triggerSource: "web" as const,
         cloudBrowserEnabled: undefined,

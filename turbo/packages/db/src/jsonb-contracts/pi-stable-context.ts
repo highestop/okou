@@ -60,6 +60,7 @@ export interface PiStableContextPromptInputs {
   readonly discordEnabled: boolean;
   readonly deliveryFormatGuidanceEnabled: boolean;
   readonly presentationConvertEnabled: boolean;
+  readonly browserNativeInputEnabled: boolean;
   readonly customConnectorMcpEnabled: boolean;
   readonly triggerSource: TriggerSource;
   readonly cloudBrowserEnabled: boolean | undefined;

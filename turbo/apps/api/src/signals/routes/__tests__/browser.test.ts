@@ -5627,6 +5627,9 @@ describe("okou browser route", () => {
 
   it("keeps managed browser access off for a default chat thread", async () => {
     const { runs, chat, actor, agent } = await setupBrowserScenario();
+    await updateFeatureSwitchesForUser(context, actor, {
+      [FeatureSwitchKey.BrowserNativeInput]: true,
+    });
     const sent = await chat.requestSendEvent(
       actor,
       {
@@ -5638,12 +5641,16 @@ describe("okou browser route", () => {
     if (sent.status !== 201 || sent.body.runId === null) {
       throw new Error("Expected a chat run");
     }
+    await flushWaitUntilForTest();
     const claim = await runs.claimRunnerJob(sent.body.runId);
     expect(claim.appendSystemPrompt ?? "").toContain(
       "Okou Browser is currently off for this chat thread",
     );
     expect(claim.appendSystemPrompt ?? "").not.toContain(
-      "Browser form input: use `okou browser input-request`",
+      "Browser user input priority:",
+    );
+    expect(claim.appendSystemPrompt ?? "").not.toContain(
+      "okou browser input-request",
     );
     const browserToken = runs.okouTokenForRunWithCapabilities(
       actor,
@@ -5663,7 +5670,7 @@ describe("okou browser route", () => {
     });
   });
 
-  it("advertises managed browser access for an enabled chat thread", async () => {
+  it("omits native input guidance when the switch is disabled", async () => {
     const { runs, chat, actor, agent } = await setupBrowserScenario();
     const sent = await chat.requestSendEvent(
       actor,
@@ -5678,6 +5685,7 @@ describe("okou browser route", () => {
       throw new Error("Expected a chat run");
     }
 
+    await flushWaitUntilForTest();
     const claim = await runs.claimRunnerJob(sent.body.runId);
     const appendSystemPrompt = claim.appendSystemPrompt ?? "";
     expect(appendSystemPrompt).toContain(
@@ -5686,17 +5694,54 @@ describe("okou browser route", () => {
     expect(appendSystemPrompt).toContain(
       "Okou Browser lifetime: `okou browser use` and `okou browser lease` each extend the session's idle lease by a fixed 10 minutes",
     );
+    expect(appendSystemPrompt).not.toContain("okou browser input-request");
     expect(appendSystemPrompt).toContain(
-      "use `okou browser input-request` only when the user must personally enter supported form values",
+      "Direct Browser takeover is a last resort, not the default for login",
     );
-    expect(appendSystemPrompt).toContain(
-      "It opens a dedicated input form (not other Browser interactions); entered values are not included in the action URL or callback.",
-    );
-    expect(appendSystemPrompt).toContain(
-      "Fill ordinary forms with `agent-browser` instead.",
-    );
+    expect(appendSystemPrompt).not.toContain("Browser user input priority:");
     expect(appendSystemPrompt).not.toContain(
       "Okou Browser is currently off for this chat thread",
+    );
+  });
+
+  it("prioritizes native input when both browser and native input are enabled", async () => {
+    const { runs, chat, actor, agent } = await setupBrowserScenario();
+    await updateFeatureSwitchesForUser(context, actor, {
+      [FeatureSwitchKey.BrowserNativeInput]: true,
+    });
+    const sent = await chat.requestSendEvent(
+      actor,
+      {
+        agentId: agent.agentId,
+        prompt: "Sign in to a website",
+        cloudBrowserEnabled: true,
+      },
+      [201],
+    );
+    if (sent.status !== 201 || sent.body.runId === null) {
+      throw new Error("Expected a chat run");
+    }
+
+    await flushWaitUntilForTest();
+    const claim = await runs.claimRunnerJob(sent.body.runId);
+    const appendSystemPrompt = claim.appendSystemPrompt ?? "";
+    expect(appendSystemPrompt).toContain(
+      "prefer `okou browser input-request` over direct Browser takeover",
+    );
+    expect(appendSystemPrompt).toContain(
+      "especially login username, password, or one-time code",
+    );
+    expect(appendSystemPrompt).toContain(
+      "After it succeeds, return its exact action URL and use no further Browser commands in this turn",
+    );
+    expect(appendSystemPrompt).toContain(
+      "If a target is stale, inspect and recapture it once where safe; never blindly replay an uncertain write",
+    );
+    expect(appendSystemPrompt).toContain(
+      "Direct Browser takeover is a last resort, not the default for login",
+    );
+    expect(appendSystemPrompt).toContain(
+      "If the user explicitly asks to view the Browser, you may share its live view without treating that request as a takeover",
     );
   });
 
