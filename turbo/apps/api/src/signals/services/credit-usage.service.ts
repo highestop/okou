@@ -41,8 +41,8 @@ async function deductOrgCredits(
   tx: WriteTx,
   orgId: string,
   amount: number,
-): Promise<void> {
-  await writeOrgMetadataWithDefaultPlanEntitlement(
+): Promise<number> {
+  const [debit] = await writeOrgMetadataWithDefaultPlanEntitlement(
     tx,
     orgId,
     async (writeTx) => {
@@ -61,9 +61,17 @@ async function deductOrgCredits(
             updatedAt: sql`now()`,
           },
         })
-        .returning({ orgId: orgMetadata.orgId, tier: orgMetadata.tier });
+        .returning({
+          orgId: orgMetadata.orgId,
+          tier: orgMetadata.tier,
+          credits: orgMetadata.credits,
+        });
     },
   );
+  if (!debit) {
+    throw new Error("Organization debit returned no metadata row");
+  }
+  return debit.credits;
 }
 
 async function getOrgCredits(tx: WriteTx, orgId: string): Promise<number> {
@@ -627,8 +635,11 @@ export async function processOrgUsageEventsInLockedTransaction(
     const expired = await expireCredits(tx, orgId, settlementTime);
     work.expiredRows = expired.rows;
     const effectiveBeforeCredits = Math.max(beforeCredits - expired.credits, 0);
-    await deductOrgCredits(tx, orgId, sharedCreditsCharged);
-    const afterCredits = await getOrgCredits(tx, orgId);
+    const afterCredits = await deductOrgCredits(
+      tx,
+      orgId,
+      sharedCreditsCharged,
+    );
     work.expiryRows = await deductFromExpiresRecords(
       tx,
       orgId,
