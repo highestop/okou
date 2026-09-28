@@ -408,9 +408,7 @@ export {
 export {
   testTelegramStateContract,
   testTelegramStateErrorSchema,
-  testTelegramStateResponseSchema,
   type TestTelegramStateContract,
-  type TestTelegramStateResponse,
 } from "./test-telegram-state";
 export {
   cronCompactChatThreadSnapshotsContract,
@@ -1937,7 +1935,6 @@ export {
   type TelegramBotStatus,
   type TelegramListResponse,
   type TelegramLinkStatusResponse,
-  type TelegramSetupStatus,
 } from "./integrations-telegram";
 export {
   discordContextModeSchema,
