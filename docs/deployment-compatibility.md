@@ -212,6 +212,37 @@ Kept compatibility, with the unmet condition:
 - Official Workflow queue marker decoding (#29908): its writers still write the
   markers.
 
+## Direct PUT checksum removal and Browser file uploads (#37241)
+
+The shared presigner no longer puts `x-amz-checksum-sha256` into a required
+request header or the signed URL. The host CLI keeps its original PUT with
+`Content-Type`; no host prepare/complete workflow changes. The same removal
+also applies to Discord canonical PUTs. This deliberately drops
+R2 enforcement of the client-declared byte hash. A holder of a hosted or
+Discord PUT URL can replace its object with different bytes while that URL is
+valid (the host URL expires after 48 hours). The request's `Content-Type` is
+also not signed, so a replay can change the object's media type. The
+client-provided SHA-256 and host manifest are not trusted proof of the
+originally intended bytes. Host
+manifests still carry `immutableContent: true` for their existing serving and
+cache policy; that marker must **not** be interpreted as an R2 overwrite
+barrier. Treat replay-versus-cache consistency as an accepted limitation until
+server-owned sealing or cache-policy changes are separately approved.
+
+Browser native file input no longer computes or transports a file SHA-256 and
+apply no longer compares a readback digest. Prepare still requires an exact
+pending request and issues a ten-minute temporary PUT URL, using the same
+shared ten-minute Browser idle-lease duration; the provider's absolute timeout
+and request/target state can still end the operation earlier. Apply still
+checks downloaded byte length and the 10 MiB aggregate / three-file limits,
+then uses the existing exact target, pending/uncertain, and 15-second CDP
+boundaries. Cancellation attempts object cleanup, but a holder of an unexpired
+PUT URL can recreate a temporary object after cleanup; the 24-hour R2
+lifecycle rule remains the eventual backstop. No production CORS or feature
+switch is changed. The non-GA Browser wire shape changes directly, with no
+legacy compatibility path. Roll out the API and Platform changes together
+while the production file-input feature remains disabled.
+
 ## Chat Event V8 preparation: retired writers stop (2026-09-28)
 
 This is step 1 of the Chat Event V8 plan. It changes no wire protocol: the row
@@ -3820,15 +3851,14 @@ the main-owned resolver before the physical drop deploys. Its API-only floor
 does not constrain the independently retained Runner tag. A migration journal
 entry cannot prove this serving/rollback boundary.
 
-New prepares bind each upload URL to its declared SHA-256 through the signed
-`x-amz-checksum-sha256` query parameter. Existing CLIs can keep sending only
-`Content-Type`; identical-byte retries work, while different bytes fail R2's
-checksum validation. The root `/manifest.json` path is reserved for the server's
-delivery manifest. New database manifests carry `immutableContent: true`, which
-the API copies into its server-issued preview grants. The Worker trusts the grant
-for cache eligibility because old uploads could target `/manifest.json`. Completion of
-older drafts does not add that marker because their outstanding upload URLs
-were not checksum-bound.
+The earlier query-parameter checksum design was not deployed: development R2
+accepted different bytes under that signed URL, so it did not establish byte
+immutability. The root `/manifest.json` path is reserved for the server's
+delivery manifest. Database manifests may carry `immutableContent: true`, which
+the API copies into server-issued preview grants, but the marker does not
+prevent a holder of a still-valid direct PUT URL from replacing object bytes.
+Do not infer storage immutability from cache eligibility; see #37241 above.
+Completion of older drafts does not add the marker.
 
 The host Worker uses the shared `PRIVATE_ARTIFACT_CACHE_CONTROL` for successful
 private previews of marked deployments and immutable organization snapshots.
