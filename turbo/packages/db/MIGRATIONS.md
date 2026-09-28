@@ -112,6 +112,14 @@ are enforced by the integration ingress tests.
 
 ### Active transition validators
 
+- `scripts/test-chat-event-v8-migration.ts` protects migration
+  `1286_chat_event_v8`: it seeds V7 rows in the 1285 schema, runs the
+  migration after an interrupted attempt that only swapped the checks, and
+  asserts the converged rows, drafts, shares, run sources, validated checks,
+  committed batches and an unchanged state after a repeated run. Retain it
+  until all three transition conditions above pass; the permanent migration
+  suite keeps the exact V8 event and context type sets.
+
 - `scripts/test-pi-inference-lifecycle.ts` protects migrations
   `1134_pi_inference_lifecycle` and `1135_validate_pi_inference_launch` (#34242):
   old/new launch writes, sparse-table invariants, real lock and journal rollback,

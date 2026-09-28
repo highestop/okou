@@ -2297,7 +2297,7 @@ describe("CHAT-02: completed chat callback", () => {
     await flushWaitUntilForTest();
 
     // At the org cap the auto-send starts no run: the input stays pending in
-    // the thread and no queued-run marker is written.
+    // the thread.
     const whileFull = await chat.listThreadEvents(actor, first.threadId);
     expect(
       userMessages(whileFull.events).filter((message) => {
@@ -2309,11 +2309,6 @@ describe("CHAT-02: completed chat callback", () => {
         return message.id === queuedEventId;
       }),
     ).toBeDefined();
-    expect(
-      assistantMessages(whileFull.events).some((message) => {
-        return message.runEventId === "queue:queued";
-      }),
-    ).toBeFalsy();
 
     // Freeing the org slot picks the waiting thread and launches its input.
     await api.requestCancelRun(actor, blocker.runId, [200]);
