@@ -2227,6 +2227,13 @@
       },
       "openTemplatesAria": "テンプレートを見る",
       "startWithPrompt": "作成",
+      "subscription": {
+        "claude": "Claude",
+        "codex": "Codex",
+        "description": "Claude Max 5x/20x や Codex のプランで",
+        "openSettingsAria": "モデル設定を開く",
+        "title": "タスクを無料で実行"
+      },
       "templates": "テンプレート"
     },
     "taskChips": {

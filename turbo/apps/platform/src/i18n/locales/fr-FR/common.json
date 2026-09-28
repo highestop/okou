@@ -2283,6 +2283,13 @@
       },
       "openTemplatesAria": "Parcourir les modèles",
       "startWithPrompt": "Créer",
+      "subscription": {
+        "claude": "Claude",
+        "codex": "Codex",
+        "description": "Avec votre forfait Claude Max 5x/20x ou Codex",
+        "openSettingsAria": "Ouvrir les paramètres des modèles",
+        "title": "Tâches gratuites"
+      },
       "templates": "Modèles"
     },
     "taskChips": {

@@ -2236,6 +2236,13 @@
       },
       "openTemplatesAria": "Browse templates",
       "startWithPrompt": "Create",
+      "subscription": {
+        "claude": "Claude",
+        "codex": "Codex",
+        "description": "With your Claude Max 5x/20x or Codex plan",
+        "openSettingsAria": "Open model settings",
+        "title": "Run tasks for free"
+      },
       "templates": "Templates"
     },
     "taskChips": {

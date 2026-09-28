@@ -2236,6 +2236,13 @@
       },
       "openTemplatesAria": "टेम्पलेट ब्राउज़ करें",
       "startWithPrompt": "बनाएं",
+      "subscription": {
+        "claude": "Claude",
+        "codex": "Codex",
+        "description": "अपने Claude Max 5x/20x या Codex प्लान से",
+        "openSettingsAria": "मॉडल सेटिंग्स खोलें",
+        "title": "मुफ़्त में काम चलाएँ"
+      },
       "templates": "टेम्पलेट"
     },
     "taskChips": {

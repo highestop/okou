@@ -2227,6 +2227,13 @@
       },
       "openTemplatesAria": "Jelajahi templat",
       "startWithPrompt": "Buat",
+      "subscription": {
+        "claude": "Claude",
+        "codex": "Codex",
+        "description": "Dengan paket Claude Max 5x/20x atau Codex Anda",
+        "openSettingsAria": "Buka pengaturan model",
+        "title": "Jalankan tugas gratis"
+      },
       "templates": "Templat"
     },
     "taskChips": {

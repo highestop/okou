@@ -2283,6 +2283,13 @@
       },
       "openTemplatesAria": "Sfoglia i modelli",
       "startWithPrompt": "Crea",
+      "subscription": {
+        "claude": "Claude",
+        "codex": "Codex",
+        "description": "Con il tuo piano Claude Max 5x/20x o Codex",
+        "openSettingsAria": "Apri le impostazioni dei modelli",
+        "title": "Esegui attività gratis"
+      },
       "templates": "Modelli"
     },
     "taskChips": {

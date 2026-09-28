@@ -2227,6 +2227,13 @@
       },
       "openTemplatesAria": "浏览模板",
       "startWithPrompt": "创建",
+      "subscription": {
+        "claude": "Claude",
+        "codex": "Codex",
+        "description": "用你的 Claude Max 5x/20x 或 Codex 套餐",
+        "openSettingsAria": "打开模型设置",
+        "title": "免费运行任务"
+      },
       "templates": "模板"
     },
     "taskChips": {
