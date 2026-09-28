@@ -43,6 +43,48 @@ production has no writer for them. After this change is released, raise the API
 rollback floor to its main commit so that no rollback target writes the retired
 types; that floor update is a separate follow-up and is not part of this change.
 
+## Video retirement follow-up: accepted-job paths and video model reads removed
+
+Follow-up to the retirement below, tracked in #37249.
+
+- The API no longer completes video or avatar jobs accepted by a
+  pre-retirement API. The BytePlus, MiniMax, and JoggAI webhook routes are
+  removed (callbacks now receive `404`). A fal success callback for a video job
+  is logged and acknowledged without completing the job; a fal failure
+  callback still fails it. Status reads of
+  finished jobs, existing video artifacts, and historical usage and credit
+  records are unchanged. `JOGGAI_API_KEY`, `JOGGAI_WEBHOOK_SECRET`, and the
+  API's `MINIMAX_API_KEY` are no longer read.
+- The API no longer reads or writes the `selected_video_model` columns on
+  threads, thread events, members, or runs. Thread metadata, thread events,
+  and compacted snapshots still send `selectedVideoModel: null`, because Web
+  clients at the current floor require the field. Historical
+  `video_model_updated` events stay readable and replay as no-ops.
+- The Web client floor is raised to `0.981.0`, the App build that retired
+  video generation (live in production from release #37254). Older tabs
+  receive `426` and reload, so no client still reaches the removed routes and
+  controls.
+- The production API rollback resolver now rejects targets that do not contain
+  #37242 (`VIDEO_GENERATION_RETIREMENT_COMMIT`), so a rollback cannot restore
+  an API that accepts video jobs. Before merge, a read-only MaskDB query
+  confirmed no `video` job is within its 30-minute timeout in `queued` or
+  `running`.
+
+Old and new versions during deploy:
+
+- Previous API with the new App: the new App treats `selectedVideoModel` as
+  optional and ignores it, so the historical values the previous API still
+  returns have no effect.
+- New API with the floor-level App: it receives `selectedVideoModel: null`
+  and no video model control reads it.
+- Jobs: a video or avatar job still in flight would not complete; the gate
+  above requires that none remain.
+
+No database migration is included. Dropping the columns, the
+`video_model_updated` kind, and the wire field is the next step under #37249,
+after this API is the rollback floor and this App build is the Web client
+floor.
+
 ## MCP user-message source reader preparation (#37233)
 
 The API contract and App can parse and display a server-owned MCP source part
@@ -99,8 +141,9 @@ Old and new versions during deploy:
 
 New threads and runs no longer resolve or store a video model; the member
 default is no longer written or returned. Thread metadata and thread events
-still expose the historical `selectedVideoModel` value (null for new threads),
-and the `video_model_updated` event kind stays readable for replay.
+still expose the historical `selectedVideoModel` value (null for new threads;
+the follow-up above sends null for all threads), and the `video_model_updated`
+event kind stays readable for replay.
 
 No database migration is included. Historical usage and credit records keep
 their `video` and `audio` rows and display names. Dropping the thread, member,
