@@ -4069,9 +4069,6 @@
     "errors": {
       "httpStatus": "HTTP {{status}}",
       "requestFailed": "Request failed"
-    },
-    "realtime": {
-      "degraded": "Live updates ran into a problem. Please refresh the page."
     }
   },
   "invitationRedirect": {

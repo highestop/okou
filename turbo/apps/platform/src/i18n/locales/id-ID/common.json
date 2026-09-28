@@ -4060,9 +4060,6 @@
     "errors": {
       "httpStatus": "HTTP {{status}}",
       "requestFailed": "Permintaan gagal"
-    },
-    "realtime": {
-      "degraded": "Pembaruan langsung mengalami masalah. Segarkan halaman."
     }
   },
   "invitationRedirect": {

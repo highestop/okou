@@ -4077,9 +4077,6 @@
     "errors": {
       "httpStatus": "HTTP {{status}}",
       "requestFailed": "अनुरोध विफल रहा"
-    },
-    "realtime": {
-      "degraded": "लाइव अपडेट में समस्या आई। कृपया पृष्ठ को ताज़ा करें."
     }
   },
   "invitationRedirect": {

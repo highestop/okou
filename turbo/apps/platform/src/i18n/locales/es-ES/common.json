@@ -4136,9 +4136,6 @@
     "errors": {
       "httpStatus": "HTTP {{status}}",
       "requestFailed": "Solicitud fallida"
-    },
-    "realtime": {
-      "degraded": "Se produjo un problema con las actualizaciones en directo. Actualiza la página."
     }
   },
   "invitationRedirect": {
