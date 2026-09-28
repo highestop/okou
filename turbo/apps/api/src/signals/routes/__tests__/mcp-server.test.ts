@@ -1992,7 +1992,7 @@ describe("MCP chat discovery and creation", () => {
     await runs.requestCancelRun(actor.actor, nextRunId, [200]);
   });
 
-  it("preserves Fast, reasoning, media and browser settings", async () => {
+  it("preserves Fast, reasoning, image model and browser settings", async () => {
     const f = await threadFixture();
     const model = await f.chat.getDefaultCreateThreadModel(f.actor);
     const created = await f.chat.createThread(f.actor, {
@@ -2005,12 +2005,10 @@ describe("MCP chat discovery and creation", () => {
       codexServiceTier: "fast",
     });
     await f.chat.updateThreadImageModel(f.actor, created.id, "gpt-image-2");
-    await f.chat.updateThreadVideoModel(f.actor, created.id, "MiniMax-H3");
     const before = await f.chat.readThreadMetadata(f.actor, created.id);
     expect(before).toMatchObject({
       modelSettings: { [model]: { effort: "high" } },
       serviceTier: "priority",
-      selectedVideoModel: "MiniMax-H3",
       selectedImageModel: "gpt-image-2",
     });
 

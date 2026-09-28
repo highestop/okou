@@ -134,7 +134,6 @@ async function createCanonicalTelegramChatThread(
       lastMessageAt: args.currentTime,
       createdAt: args.currentTime,
       updatedAt: args.currentTime,
-      selectedVideoModel: mediaModels.selectedVideoModel,
       selectedImageModel: mediaModels.selectedImageModel,
     })
     .returning({ id: chatThreads.id, createdAt: chatThreads.createdAt });

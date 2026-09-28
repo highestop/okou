@@ -102,24 +102,21 @@ function chatThreadCreateResponse(
   });
 }
 
-/** Media models inherited from the caller run's chat thread. */
+/** Image model inherited from the caller run's chat thread. */
 async function inheritedRunChatSettings(
   db: Db,
   runId: string | undefined,
 ): Promise<{
-  readonly selectedVideoModel: string | null;
   readonly selectedImageModel: ImageModelId | null;
 }> {
   if (!runId) {
     return {
-      selectedVideoModel: null,
       selectedImageModel: null,
     };
   }
 
   const [run] = await db
     .select({
-      selectedVideoModel: chatThreads.selectedVideoModel,
       selectedImageModel: chatThreads.selectedImageModel,
     })
     .from(agentRuns)
@@ -127,7 +124,6 @@ async function inheritedRunChatSettings(
     .where(and(eq(agentRuns.id, runId), isNotNull(agentRuns.triggerSource)))
     .limit(1);
   return {
-    selectedVideoModel: run?.selectedVideoModel ?? null,
     selectedImageModel: isImageModelId(run?.selectedImageModel)
       ? run.selectedImageModel
       : null,
@@ -261,10 +257,6 @@ const createInner$ = command(async ({ get, set }, signal: AbortSignal) => {
     userId: auth.userId,
   });
   signal.throwIfAborted();
-  const selectedVideoModel =
-    body.data.videoModel ??
-    inherited.selectedVideoModel ??
-    mediaDefaults.selectedVideoModel;
   const selectedImageModel =
     body.data.imageModel ??
     inherited.selectedImageModel ??
@@ -314,7 +306,6 @@ const createInner$ = command(async ({ get, set }, signal: AbortSignal) => {
       ...chatThreadModelPinColumns(pin),
       modelSettings: effort.modelSettings,
       codexServiceTier,
-      selectedVideoModel,
       selectedImageModel,
       connectorSelections,
       initialRemoteAccessOverrides,

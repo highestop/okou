@@ -1714,27 +1714,6 @@ export {
   type PushSubscriptionsContract,
 } from "./push-subscriptions";
 export {
-  avatarVideoAspectRatioSchema,
-  avatarVideoAvatarSchema,
-  avatarVideoAvatarsQuerySchema,
-  avatarVideoAvatarsResponseSchema,
-  avatarVideoContract,
-  avatarVideoGenerateRequestSchema,
-  avatarVideoGenerateResponseSchema,
-  avatarVideoScreenStyleSchema,
-  avatarVideoVoiceIdSchema,
-  avatarVideoVoiceSchema,
-  avatarVideoVoicesQuerySchema,
-  avatarVideoVoicesResponseSchema,
-  type AvatarVideoAvatar,
-  type AvatarVideoAvatarsQuery,
-  type AvatarVideoContract,
-  type AvatarVideoGenerateRequest,
-  type AvatarVideoGenerateResponse,
-  type AvatarVideoVoice,
-  type AvatarVideoVoicesQuery,
-} from "./avatar-video";
-export {
   imageIoGenerateContract,
   imageIoGenerateRequestSchema,
   imageIoGenerateResponseSchema,
@@ -1821,14 +1800,6 @@ export {
   type AirQualityCurrentRequest,
 } from "./weather";
 export {
-  videoIoGenerateContract,
-  videoIoGenerateRequestSchema,
-  videoIoGenerateResponseSchema,
-  type VideoIoGenerateContract,
-  type VideoIoGenerateRequest,
-  type VideoIoGenerateResponse,
-} from "./video-io-generate";
-export {
   builtInGenerationContract,
   builtInGenerationTypeSchema,
   builtInGenerationStatusSchema,
@@ -1864,14 +1835,6 @@ export {
   type VoiceIoQuotaContract,
   type AudioInputQuotaResponse,
 } from "./voice-io-quota";
-export {
-  voiceIoSpeechContract,
-  voiceIoSpeechRequestSchema,
-  voiceIoSpeechResponseSchema,
-  type VoiceIoSpeechContract,
-  type VoiceIoSpeechRequest,
-  type VoiceIoSpeechResponse,
-} from "./voice-io-speech";
 export {
   voiceIoSttContract,
   voiceIoSttResponseSchema,
