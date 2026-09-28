@@ -12,7 +12,6 @@ import { and, eq, sql } from "drizzle-orm";
 import type { Db } from "../external/db";
 import type { FeishuInboundMessage } from "./feishu-dispatch.service";
 import { appendChatThreadEvent } from "./chat-thread-event.service";
-import { loadNewChatThreadMediaModels } from "./chat-thread-media-model.service";
 import { loadNewChatThreadModelSettings } from "./chat-thread-model-settings.service";
 
 interface FeishuChatThreadRouteKey {
@@ -121,10 +120,6 @@ export async function ensureFeishuChatThreadRoute(
       tx,
       args,
     );
-    const mediaModels = await loadNewChatThreadMediaModels(tx, {
-      orgId: args.orgId,
-      userId: args.userId,
-    });
     const modelSettings = await loadNewChatThreadModelSettings(tx, {
       orgId: args.orgId,
       userId: args.userId,
@@ -143,7 +138,6 @@ export async function ensureFeishuChatThreadRoute(
         lastMessageAt: args.currentTime,
         createdAt: args.currentTime,
         updatedAt: args.currentTime,
-        selectedImageModel: mediaModels.selectedImageModel,
       })
       .returning({ id: chatThreads.id, createdAt: chatThreads.createdAt });
     if (!thread) {
@@ -198,7 +192,6 @@ export async function ensureFeishuChatThreadRoute(
       selectedModel: initialModel.selectedModel,
       modelSettings,
       serviceTier: initialModel.serviceTier,
-      ...mediaModels,
       createdAt: thread.createdAt,
     });
     return route;

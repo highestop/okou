@@ -12,7 +12,6 @@ import { and, eq } from "drizzle-orm";
 
 import type { Db } from "../external/db";
 import { appendChatThreadEvent } from "./chat-thread-event.service";
-import { loadNewChatThreadMediaModels } from "./chat-thread-media-model.service";
 import { loadNewChatThreadModelSettings } from "./chat-thread-model-settings.service";
 import type { Tx } from "../../lib/db-types";
 
@@ -223,10 +222,6 @@ export async function ensureCanonicalDiscordChatThreadRoute(
       tx,
       args,
     );
-    const mediaModels = await loadNewChatThreadMediaModels(tx, {
-      orgId: args.orgId,
-      userId: args.userId,
-    });
     const modelSettings = await loadNewChatThreadModelSettings(tx, {
       orgId: args.orgId,
       userId: args.userId,
@@ -245,7 +240,6 @@ export async function ensureCanonicalDiscordChatThreadRoute(
         lastMessageAt: args.currentTime,
         createdAt: args.currentTime,
         updatedAt: args.currentTime,
-        selectedImageModel: mediaModels.selectedImageModel,
       })
       .returning({ id: chatThreads.id, createdAt: chatThreads.createdAt });
     if (!thread) {
@@ -297,7 +291,6 @@ export async function ensureCanonicalDiscordChatThreadRoute(
       selectedModel: initialModel.selectedModel,
       modelSettings,
       serviceTier: initialModel.serviceTier,
-      ...mediaModels,
       createdAt: thread.createdAt,
     });
     await attachIngressRoute(tx, args.ingressId, route.id);

@@ -6,10 +6,6 @@ import { and, eq } from "drizzle-orm";
 
 import type { Db } from "../external/db";
 import { appendChatThreadEvent } from "./chat-thread-event.service";
-import {
-  loadNewChatThreadMediaModels,
-  type NewChatThreadMediaModels,
-} from "./chat-thread-media-model.service";
 import { loadNewChatThreadModelSettings } from "./chat-thread-model-settings.service";
 import type { ModelSettings } from "@okouai/api-contracts/contracts/model-reasoning-effort";
 import type { Tx } from "../../lib/db-types";
@@ -115,7 +111,6 @@ interface CreatedTelegramChatThread {
   readonly serviceTier: ChatThreadServiceTier | null;
   readonly id: string;
   readonly createdAt: Date;
-  readonly mediaModels: NewChatThreadMediaModels;
   readonly modelSettings: ModelSettings;
 }
 
@@ -124,10 +119,6 @@ async function createCanonicalTelegramChatThread(
   args: TelegramChatThreadCreateArgs,
 ): Promise<CreatedTelegramChatThread> {
   const initialModel = await resolveRequiredDefaultChatThreadModelPin(tx, args);
-  const mediaModels = await loadNewChatThreadMediaModels(tx, {
-    orgId: args.orgId,
-    userId: args.userId,
-  });
   const modelSettings = await loadNewChatThreadModelSettings(tx, {
     orgId: args.orgId,
     userId: args.userId,
@@ -147,7 +138,6 @@ async function createCanonicalTelegramChatThread(
       lastMessageAt: args.currentTime,
       createdAt: args.currentTime,
       updatedAt: args.currentTime,
-      selectedImageModel: mediaModels.selectedImageModel,
     })
     .returning({ id: chatThreads.id, createdAt: chatThreads.createdAt });
   if (!thread) {
@@ -155,7 +145,6 @@ async function createCanonicalTelegramChatThread(
   }
   return {
     ...thread,
-    mediaModels,
     modelSettings,
     selectedModel: initialModel.selectedModel,
     serviceTier: initialModel.serviceTier,
@@ -178,7 +167,6 @@ async function appendCanonicalTelegramChatThreadCreatedEvent(
     modelSettings: thread.modelSettings,
     serviceTier: thread.serviceTier,
     computerUseHostId: null,
-    ...thread.mediaModels,
     createdAt: thread.createdAt,
   });
 }
