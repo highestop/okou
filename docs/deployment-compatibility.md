@@ -196,13 +196,36 @@ client calling those routes cannot gain new broad host authority; the new API
 has no handler for them. Current SSH/VNC host inventory and private Runner
 checks continue to require the Run's chat permission.
 
-The physical `agent_ssh_access` and `agent_vnc_access` tables remain in this
-release. Production migrations precede API promotion, so a still-serving older
-API may read or write those rows during the overlap. Existing rows never
-authorize access on the new API. The owner does not require preserving rollback
-to a pre-cutover API for this cleanup. Physical table removal (#37272) is a
-separate deployment: first confirm every serving API instance that references
-the tables has drained; do not infer drain from this PR's merge or deployment.
+The physical `agent_ssh_access` and `agent_vnc_access` tables remain in the
+#36360 release. Production migrations precede API promotion, so a still-serving
+older API could have read or written those rows during the overlap. Existing
+rows never authorize access on the new API. The owner does not require
+preserving rollback to a pre-cutover API for this cleanup.
+
+### Remaining Agent-grant reader retirement (PR #37305)
+
+#36360 intentionally retained VNC owner-cleanup reads, locks and deletes on
+`agent_vnc_access` for serving older APIs. Production API versions containing
+#37274, including the `8531a2b` build observed on 2026-09-29, **still access
+this table** during user, organization and membership cleanup. The earlier
+production drain proved only that pre-#37274 binaries had stopped serving; it
+did not make a same-release VNC grant table drop safe.
+
+PR #37305 removes this last production VNC grant dependency and the test-only
+SSH grant writer, while **retaining both physical grant tables and their schema
+declarations**. During its rollout the old API can continue to use the table
+because there is no drop migration. Current chat-scoped SSH/VNC host authority,
+VNC configuration cleanup and historical migration replay remain unchanged.
+
+**Separate future contraction (#37272):** Deploy a new table-drop migration only
+after an API version containing the code-only PR has been promoted to every
+production API target, all earlier invocations that access either table have
+drained, and the rollback floor excludes those binaries. Recheck live aliases,
+serving versions and the actual function-execution bound immediately before
+deploying that migration; a merge, one sampled response or the #37274 drain
+alone is insufficient. Because migrations run before API promotion, combining
+the last-reader removal and the physical drop in one release is unsafe. No
+table-drop migration or production migration receipt is included here.
 
 ## Video model columns and `video_model_updated` dropped (#37249)
 
