@@ -328,7 +328,6 @@ import {
 import { readChatMessageFromClipboard } from "../../signals/okou-page/clipboard.ts";
 import { shouldUseUserMessage } from "../../signals/okou-page/user-message-document-codec.ts";
 import { WebsiteTemplatePreviewDialogSlot } from "./website-template-preview-dialog.tsx";
-import { ReplaceComposerDraftDialog } from "./replace-composer-draft-dialog.tsx";
 import {
   localizedWorkflowTemplate,
   localizedWorkflowTemplateCategory,
@@ -5889,65 +5888,6 @@ function ComposerTemplatePickerSlot({ signals }: { signals: ComposerSignals }) {
   );
 }
 
-function CreateWorkflowPromptButton({
-  onCreateWorkflowPrompt,
-}: {
-  onCreateWorkflowPrompt: () => void;
-}) {
-  const { t } = useTranslation();
-  return (
-    <TooltipProvider delay={300}>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              type="button"
-              variant="quiet"
-              size="icon-sm"
-              iconSize="md"
-              className="shrink-0"
-              aria-label={t(($) => {
-                return $.chat.composer.createWorkflow;
-              })}
-              onClick={onCreateWorkflowPrompt}
-            >
-              <Route size={18} aria-hidden="true" />
-            </Button>
-          }
-        />
-        <TooltipContent side="top" className="text-xs">
-          {t(($) => {
-            return $.chat.composer.createWorkflow;
-          })}
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
-  );
-}
-
-/** Turns the draft into a workflow prompt; a menu row once the add menu owns it. */
-function useCreateWorkflowPrompt(signals: ComposerSignals) {
-  const createWorkflowPrompt = useSet(signals.workflow.createWorkflowPrompt$);
-  const pageSignal = useGet(pageSignal$);
-  return () => {
-    detach(createWorkflowPrompt(pageSignal), Reason.DomCallback);
-  };
-}
-
-function ComposerWorkflowPromptSlot({ signals }: { signals: ComposerSignals }) {
-  const onCreateWorkflowPrompt = useCreateWorkflowPrompt(signals);
-  const addMenuEnabled =
-    useGet(featureSwitch$)[FeatureSwitchKey.ComposerAddMenu] === true;
-  if (addMenuEnabled) {
-    return null;
-  }
-  return (
-    <CreateWorkflowPromptButton
-      onCreateWorkflowPrompt={onCreateWorkflowPrompt}
-    />
-  );
-}
-
 function matchesCustomConnectorSearch(
   search: string,
   connector: CustomConnectorResponse,
@@ -8000,11 +7940,8 @@ function ComposerAttachButton({ signals }: { signals: ComposerSignals }) {
 }
 
 /**
- * Exactly the three toolbar buttons the `+` replaces, in their old left-to-right
- * order. The rule is separate because the first two add content to the message
- * while the third rewrites the draft into a workflow prompt. Importing skills
- * sits beside it: it also brings workflows in, from the user's Claude Code or
- * Codex.
+ * Group attachments and templates separately from importing skills, which
+ * brings workflows in from the user's Claude Code or Codex.
  *
  * Starting a presentation, image, website or visualization deliberately
  * stays out: the task chips sit directly under the composer and already reach
@@ -8017,7 +7954,6 @@ function useComposerAddMenuGroups(
   const { t } = useTranslation();
   const fileInput = useGet(signals.draft.composerFileInput$);
   const template = useTemplatePickerTrigger(signals);
-  const onCreateWorkflowPrompt = useCreateWorkflowPrompt(signals);
   const openSkillImportDialog = useSet(openSkillImportDialog$);
   const pageSignal = useGet(pageSignal$);
   return [
@@ -8041,14 +7977,6 @@ function useComposerAddMenuGroups(
       },
     ],
     [
-      {
-        id: "workflow",
-        Icon: Route,
-        label: t(($) => {
-          return $.chat.composer.createWorkflow;
-        }),
-        onSelect: onCreateWorkflowPrompt,
-      },
       {
         id: "import-skills",
         Icon: Download,
@@ -9542,7 +9470,6 @@ function ComposerFooter({
           <div className="flex min-w-0 items-center gap-1 text-muted-foreground composer-wide:gap-1.5">
             <ComposerAddSlot signals={signals} />
             <ComposerTemplatePickerSlot signals={signals} />
-            <ComposerWorkflowPromptSlot signals={signals} />
             <ComposerConnectorsSlot
               signals={signals}
               actions={connectorActions}
@@ -9663,7 +9590,6 @@ export function ChatComposer({
         {showPendingItems ? <PendingItemsStrip signals={signals} /> : null}
         <ComposerCard signals={signals} />
         <ComposerNoticeSlot signals={signals} />
-        <ReplaceComposerDraftDialog signals={signals} />
         <ImageAnnotationEditor signals={signals.imageAnnotation} />
       </div>
     </>
