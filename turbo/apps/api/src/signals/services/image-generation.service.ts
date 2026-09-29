@@ -6,6 +6,7 @@ import { usagePricing } from "@okouai/db/schema/usage-pricing";
 import {
   DEFAULT_IMAGE_MODEL,
   IMAGE_MODEL_ALIASES,
+  resolveImageModel,
   type ImageModel as SelectableImageModel,
 } from "@okouai/core/image-model-catalog";
 import { r2ImageTransformUrl } from "@okouai/core/r2-image-transform";
@@ -27,10 +28,7 @@ import { checkBillableOperationCredits$ } from "./billable-operation-admission.s
 import { storeGeneratedArtifactObject$ } from "./artifact-storage.service";
 import { recordWebUploadedFile$ } from "./run-uploaded-files.service";
 import { processOrgUsageEvents$ } from "./credit-usage.service";
-import {
-  builtInGenerationUsageIdempotencyKey,
-  type BuiltInGenerationUsageIdempotency,
-} from "./built-in-generation-usage-idempotency";
+import { builtInGenerationUsageIdempotencyKey } from "./built-in-generation-usage-idempotency";
 
 const FAL_IMAGE_QUEUE_URL_PREFIX = "https://queue.fal.run";
 const FAL_BILLABLE_UNITS_HEADER = "x-fal-billable-units";
@@ -496,8 +494,6 @@ type ErrorResponse = {
 };
 
 interface ImagePricingRow {
-  readonly provider: ImageModel;
-  readonly category: ImagePricingCategory;
   readonly unitPrice: number;
   readonly unitSize: number;
 }
@@ -730,16 +726,6 @@ function hasString(values: readonly string[], value: string): boolean {
   return values.includes(value);
 }
 
-function normalizeImageModel(value: string): ImageModel | null {
-  if (value in IMAGE_MODEL_CONFIGS) {
-    return value as ImageModel;
-  }
-  if (value in IMAGE_MODEL_ALIASES) {
-    return IMAGE_MODEL_ALIASES[value as keyof typeof IMAGE_MODEL_ALIASES];
-  }
-  return null;
-}
-
 function imageModelList(): string {
   return Object.keys(IMAGE_MODEL_ALIASES).join(", ");
 }
@@ -945,7 +931,7 @@ function parseImageModel(
   defaultModel: ImageModel,
 ): ImageModel | ErrorResponse {
   const rawModel = readString(body, "model", defaultModel);
-  const model = normalizeImageModel(rawModel);
+  const model = resolveImageModel(rawModel);
   if (!model) {
     return badRequest(
       `Unsupported image model: ${rawModel}. Available models: ${imageModelList()}`,
@@ -1385,13 +1371,11 @@ function mapPricingRows(
 ): ImagePricing {
   const pricing = new Map<string, ImagePricingRow>();
   for (const row of rows) {
-    const model = normalizeImageModel(
+    const model = resolveImageModel(
       canonicalUsagePricingProvider(resolution, USAGE_KIND, row.provider),
     );
     if (model && includesString(IMAGE_PRICING_CATEGORIES, row.category)) {
       pricing.set(imagePricingKey(model, row.category), {
-        provider: model,
-        category: row.category,
         unitPrice: row.unitPrice,
         unitSize: row.unitSize,
       });
@@ -2498,8 +2482,7 @@ export const recordGeneratedImage$ = command(
       readonly privateArtifacts: boolean;
       readonly pricing: ImagePricing;
       readonly generation: ParsedImageGeneration;
-      readonly recordArtifact?: boolean;
-      readonly usageIdempotency: BuiltInGenerationUsageIdempotency;
+      readonly generationId: string;
     },
     signal: AbortSignal,
   ): Promise<RecordedImage> => {
@@ -2520,29 +2503,24 @@ export const recordGeneratedImage$ = command(
     const { id: fileId, filename, key: s3Key, url } = artifact;
     const contentType = contentTypeForFormat(params.generation.outputFormat);
 
-    if (params.recordArtifact !== false) {
-      await set(
-        recordWebUploadedFile$,
-        {
-          runId: params.runId,
-          externalId: fileId,
-          userId: params.userId,
-          orgId: params.orgId,
-          filename,
-          contentType,
-          sizeBytes: params.generation.imageBytes.byteLength,
-          url,
-          s3Key,
-          layout: artifact.layout,
-          metadata: generatedImageMetadata(
-            params.generation,
-            artifact.isPrivate,
-          ),
-        },
-        signal,
-      );
-      signal.throwIfAborted();
-    }
+    await set(
+      recordWebUploadedFile$,
+      {
+        runId: params.runId,
+        externalId: fileId,
+        userId: params.userId,
+        orgId: params.orgId,
+        filename,
+        contentType,
+        sizeBytes: params.generation.imageBytes.byteLength,
+        url,
+        s3Key,
+        layout: artifact.layout,
+        metadata: generatedImageMetadata(params.generation, artifact.isPrivate),
+      },
+      signal,
+    );
+    signal.throwIfAborted();
 
     const usageRows = params.generation.billing.filter((row) => {
       return row.quantity > 0;
@@ -2557,7 +2535,7 @@ export const recordGeneratedImage$ = command(
             billingRunId: params.billingRunId,
             billingContext: params.billingContext,
             idempotencyKey: builtInGenerationUsageIdempotencyKey({
-              ...params.usageIdempotency,
+              generationId: params.generationId,
               category: row.category,
             }),
             orgId: params.orgId,
