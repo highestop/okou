@@ -2791,6 +2791,8 @@ describe("CHAT-01 chat thread read state", () => {
     expect(orgless.body.error.code).toBe("UNAUTHORIZED");
 
     const peer = bdd.user({ orgId: owner.orgId });
+    await bdd.readOnboardingStatus(peer);
+    await bdd.completeOnboarding(peer);
     if (!peer.orgId) {
       throw new Error("Expected an organization-scoped peer");
     }
@@ -2921,6 +2923,8 @@ describe("CHAT-01 chat thread read state", () => {
       runnerGroup,
     } = await entitledChatActor("Active ids owner agent");
     const peer = bdd.user({ orgId: owner.orgId });
+    await bdd.readOnboardingStatus(peer);
+    await bdd.completeOnboarding(peer);
     const sameUserOtherOrg = bdd.user({ userId: owner.userId });
 
     const peerAgent = await bdd.createAgent(peer, {
@@ -3384,9 +3388,7 @@ describe("CHAT-03 run usage events", () => {
   }, 60_000);
 
   it("revises run usage when later usage settles", async () => {
-    const { actor, agentId } = await entitledChatActorWithoutRunner(
-      "Usage message agent",
-    );
+    const { actor, agentId } = await entitledChatActor("Usage message agent");
     const provider = `bdd-usage-${randomUUID().slice(0, 8)}`;
     const missingProvider = `${provider}-free`;
     const category = "api_request";
@@ -3398,6 +3400,7 @@ describe("CHAT-03 run usage events", () => {
       agentId,
       prompt: "record billable usage",
     });
+    await cancelChatRun(actor, runId);
     const sandboxHeaders = {
       authorization: `Bearer ${api.sandboxTokenForRun(actor, runId)}`,
     };
@@ -3588,7 +3591,7 @@ describe("CHAT-03 run usage events", () => {
     const selectedModel = DEFAULT_ORG_MODEL_POLICY_DEFAULT_MODEL;
     expect(fixture.selectedModel).toBe(selectedModel);
 
-    const { actor, agentId } = await entitledChatActorWithoutRunner(
+    const { actor, agentId } = await entitledChatActor(
       "Allowance usage message agent",
     );
     const orgId = actor.orgId;
@@ -3628,6 +3631,7 @@ describe("CHAT-03 run usage events", () => {
       prompt: "record allowance-covered usage",
       model: selectedModel,
     });
+    await cancelChatRun(actor, runId);
     const sandboxHeaders = {
       authorization: `Bearer ${api.sandboxTokenForRun(actor, runId)}`,
     };
