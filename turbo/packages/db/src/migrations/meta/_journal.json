@@ -1492,6 +1492,13 @@
       "when": 1790688102501,
       "tag": "1290_retire_cloudflare_access_triggers",
       "breakpoints": true
+    },
+    {
+      "idx": 1291,
+      "version": "7",
+      "when": 1790691799289,
+      "tag": "1291_auto_subscription_catalog",
+      "breakpoints": true
     }
   ]
 }
