@@ -26,7 +26,6 @@ import { waitUntil } from "../context/wait-until";
 import type { Tx } from "../../lib/db-types";
 import { agentSessions } from "@okouai/db/schema/agent-session";
 import { isFreePlanForCreditAdmission } from "./run-admission.service";
-import { observePreparedLaunchPersistenceForTest } from "./prepared-launch-persistence-observer.service";
 import { now, nowDate } from "../../lib/time";
 import { conflict } from "../../lib/error";
 import { env } from "../../lib/env";
@@ -84,6 +83,7 @@ import { finalizeClaimedRunUserMessage } from "./chat-run-event.service";
 import { activatePendingRun$ as activateCommittedRun$ } from "./agent-run-activation.service";
 import {
   recordQueuedPromptRunLaunch$,
+  ChatCallbackPreCreateTimingCollector,
   queuedMessageRejection,
   rejectedQueuedRunAdmissionFailure,
   deliverQueuedPromptRejection$,
@@ -341,9 +341,6 @@ async function persistClaimedRun(
       );
       await persistClaimProducerBinding(tx, context, rowsPersisted.run.id);
       await requestPiMemoryStage1DayForAdmittedRun(tx, rowsPersisted.run.id);
-      observePreparedLaunchPersistenceForTest(
-        input.args.agentRunMetadata?.workflowAutomationId,
-      );
       const threadSessionBinding =
         input.args.chatThreadId && !admission.validatedThreadSession
           ? await persistThreadSessionBinding(tx, {
@@ -481,6 +478,7 @@ function createClaimRunTiming(pickStartedAt: number): ClaimRunTiming {
   return {
     run: new ApiDispatchTimingCollector(),
     phase: new ApiDispatchPhaseCollector(pickStartedAt),
+    prompt: new ChatCallbackPreCreateTimingCollector(),
   };
 }
 
@@ -1116,7 +1114,12 @@ export function createPickObjects(orgId: string, fixedThreadId?: string) {
   );
 
   const activatePendingRun$ = command(
-    async ({ set }, pending: PendingClaimRun, signal: AbortSignal) => {
+    async (
+      { set },
+      pending: PendingClaimRun,
+      timing: ClaimRunTiming,
+      signal: AbortSignal,
+    ) => {
       await set(
         activateCommittedRun$,
         { activation: pending.activation, activationScheduledAt: now() },
@@ -1128,6 +1131,7 @@ export function createPickObjects(orgId: string, fixedThreadId?: string) {
           recordQueuedPromptRunLaunch$,
           launched.context,
           pending.runId,
+          timing.prompt,
           signal,
         );
       } else {
@@ -1273,7 +1277,7 @@ export function createPickObjects(orgId: string, fixedThreadId?: string) {
         return { kind: "none" };
       }
       waitUntil(set(claimed.updatePresignedUrlCache$, signal));
-      await set(activatePendingRun$, pending, signal);
+      await set(activatePendingRun$, pending, timing, signal);
       return { kind: "launched", runId: pending.runId };
     },
   );
