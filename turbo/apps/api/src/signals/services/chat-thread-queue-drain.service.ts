@@ -19,6 +19,7 @@ import { now, nowDate } from "../../lib/time";
 import { db$, writeDb$, type Db } from "../external/db";
 import { publishActiveInputToRunnerGroup } from "../external/realtime";
 import { safeSync, settle, tapError } from "../utils";
+import type { PrefetchedAgentBootstrap } from "./agent-bootstrap.service";
 import { listPendingChatInputs } from "./chat-event-queue.service";
 import {
   chatInputEnqueueCommits$,
@@ -219,6 +220,7 @@ export const pickEnqueuedChatThread$ = command(
       readonly orgId: string;
       readonly chatThreadId: string;
       readonly enqueueCommit?: ChatInputEnqueueCommit;
+      readonly prefetchedBootstrap?: PrefetchedAgentBootstrap;
     },
     signal: AbortSignal,
   ) => {
@@ -228,7 +230,11 @@ export const pickEnqueuedChatThread$ = command(
         return new Map(previous).set(receipt.eventId, receipt.committedAt);
       });
     }
-    const { pick$ } = createPickObjects(input.orgId, input.chatThreadId);
+    const { pick$ } = createPickObjects(
+      input.orgId,
+      input.chatThreadId,
+      input.prefetchedBootstrap,
+    );
     return await set(pick$, signal);
   },
 );

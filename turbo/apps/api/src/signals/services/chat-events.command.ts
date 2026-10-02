@@ -44,6 +44,11 @@ import type {
   AgentRunPreCreateSource,
   AgentRunRequestAgent,
 } from "./agent-run-contracts";
+import { logger } from "../../lib/log";
+import {
+  createAgentBootstrap,
+  type PrefetchedAgentBootstrap,
+} from "./agent-bootstrap.service";
 import { registerCanonicalWebInputAssets } from "./canonical-asset.service";
 import {
   canonicalChatEventContent,
@@ -1403,10 +1408,12 @@ const publishEnqueuedNormalSend$ = command(
       readonly thread: SendThread;
       readonly touchedAt: Date;
       readonly enqueueCommit?: ChatInputEnqueueCommit;
+      readonly prefetchedBootstrap?: PrefetchedAgentBootstrap;
     },
     signal: AbortSignal,
   ): Promise<void> => {
-    const { args, thread, touchedAt, enqueueCommit } = input;
+    const { args, thread, touchedAt, enqueueCommit, prefetchedBootstrap } =
+      input;
     const picked = await settle(
       set(
         pickEnqueuedChatThread$,
@@ -1414,6 +1421,7 @@ const publishEnqueuedNormalSend$ = command(
           orgId: args.orgId,
           chatThreadId: thread.threadId,
           ...(enqueueCommit ? { enqueueCommit } : {}),
+          ...(prefetchedBootstrap ? { prefetchedBootstrap } : {}),
         },
         signal,
       ),
@@ -1504,6 +1512,45 @@ function preparedNormalSendEvent(
  * pick; a rejection appears in the thread as `input.rejected`. A direct
  * message's sidebar touch runs after the pick.
  */
+const bootstrapLog = logger("ChatAgentBootstrapPrefetch");
+
+const prefetchAgentBootstrap$ = command(
+  (
+    { get },
+    args: NormalSendArgs,
+    signal: AbortSignal,
+  ): PrefetchedAgentBootstrap | undefined => {
+    signal.throwIfAborted();
+    if (
+      args.agentRunPreCreateSource !== undefined ||
+      (args.auth.tokenType !== "session" && args.mcpSource === undefined)
+    ) {
+      return undefined;
+    }
+    const identity = {
+      userId: args.userId,
+      orgId: args.orgId,
+      agentId: args.body.agentId,
+    };
+    const bootstrap = get(
+      createAgentBootstrap(identity.userId, identity.orgId, identity.agentId),
+    );
+    // Own speculative work even when enqueue collides, a run is already
+    // active, or the FIFO head belongs to another identity. Keep the original
+    // Promise so a matching pick still receives its rejection.
+    waitUntil(
+      (async () => {
+        const result = await settle(bootstrap);
+        if (!result.ok) {
+          bootstrapLog.error("Agent bootstrap prefetch failed", {
+            error: result.error,
+          });
+        }
+      })(),
+    );
+    return { ...identity, bootstrap };
+  },
+);
 function settledNormalSendResponse(
   body: NormalSendBody,
   threadId: string,
@@ -1602,6 +1649,7 @@ export const sendNormalEvent$ = command(
       modelSelection,
       agentRunSource,
     );
+    const prefetchedBootstrap = set(prefetchAgentBootstrap$, args, signal);
     const enqueued = await settle(
       (async () => {
         let createdAt: Date | undefined;
@@ -1634,6 +1682,7 @@ export const sendNormalEvent$ = command(
               thread,
               touchedAt: createdAt,
               ...(enqueueCommit ? { enqueueCommit } : {}),
+              ...(prefetchedBootstrap ? { prefetchedBootstrap } : {}),
             },
             signal,
           ),
