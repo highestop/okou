@@ -6238,7 +6238,6 @@ async function builtInModelProviderEnvironment(
       db,
       catalog,
       selectedModel,
-      featureSwitchContext,
       newRunPricing
         ? await loadBuiltInRoutePricing(db, {
             catalog,
