@@ -1,5 +1,38 @@
 # Deployment Compatibility
 
+## MCP Web-parity protocol simplification
+
+The owner explicitly approved removal of the MCP-specific chat protocol in
+[#37513](https://github.com/okou-ai/okou/issues/37513). MCP is a thin adapter to
+ordinary Web chat commands, not a separately versioned creation/replay product.
+The dedicated `create_chat_thread` tool, required `requestId`, 24-hour exact
+replay contract, input receipts/references, `nextAction` handoffs and server-side
+status waiting are removed rather than retained behind a compatibility branch.
+Clients must refresh tool discovery and use the current input schemas. An
+uncertain send must not be automatically retried as a new intent.
+
+Sending without a thread id creates an ordinary conversation; sending with one
+continues it. Acceptance does not imply Run admission, delivery or completion:
+read ordinary conversation events and Run facts for the resulting state. MCP
+editing, revocation and stopping may expose only operations with equivalent Web
+semantics. OAuth, scopes, tenant ownership and ordinary Web client-event identity
+are not relaxed by this protocol deletion.
+
+This is an intentional MCP client-contract change, not a historical message
+migration or a Runner protocol change. Existing stored message/source decoding
+remains readable; no old MCP protocol fallback or dual-write path is required.
+Rolling back restores the prior advertised MCP tools and contracts, while normal
+Web chat data remains in its existing format. This approval does not waive other
+persisted-state, database or deployment-compatibility contracts.
+
+MCP send input is `{agentId, prompt, threadId?, model?}`. Status reads take
+`{runId}` and return the ordinary Web Run response. Old protocol arguments are
+rejected, not replayed or silently translated. The common metadata command no
+longer accepts the MCP-only mutation identity; Web metadata event IDs retain
+their existing behavior. Mixed MCP-serving versions can advertise different tool
+schemas during deployment; clients must use the serving version's schema rather
+than assume old request replay is available.
+
 ## Owner-selected RSA-AES VNC (default off; #37500)
 
 Migration `1313_rsa_aes_vnc` adds an independent nullable RSA wire-key pin and
