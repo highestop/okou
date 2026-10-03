@@ -1,4 +1,10 @@
 import { command, computed, type Computed } from "ccstate";
+import {
+  createOrgModelSources,
+  createGatewayModelSources,
+  createManagedModelKeys,
+  createModelPricing,
+} from "./model-source-context.service";
 import { waitUntil } from "../context/wait-until";
 import {
   agentStorageRequests,
@@ -135,6 +141,10 @@ export interface AgentRunContextSignals {
   readonly allowance$: Computed<Promise<UsageAllowanceContext>>;
   readonly modelFacts$: Computed<Promise<OrgModelBootstrap>>;
   readonly memberModels$: Computed<Promise<MemberModelBootstrap>>;
+  readonly orgModelSources$: ReturnType<typeof createOrgModelSources>;
+  readonly gatewayModelSources$: ReturnType<typeof createGatewayModelSources>;
+  readonly managedModelKeys$: ReturnType<typeof createManagedModelKeys>;
+  readonly modelPricing$: ReturnType<typeof createModelPricing>;
   readonly memberMetadata$: Computed<Promise<ExecutionMemberMetadata>>;
   readonly connectorSelection$: Computed<Promise<AgentConnectorSelection>>;
   readonly permissionGrants$: Computed<
@@ -310,6 +320,21 @@ function createSelectedOfficialFacts(
   });
 }
 
+function createModelSourceGroups(
+  orgId: string,
+  supplied?: AgentRunContextSignals,
+) {
+  const sharedOrg = supplied?.orgId === orgId ? supplied : undefined;
+  return {
+    orgModelSources$:
+      sharedOrg?.orgModelSources$ ?? createOrgModelSources(orgId),
+    gatewayModelSources$:
+      sharedOrg?.gatewayModelSources$ ?? createGatewayModelSources(orgId),
+    managedModelKeys$: supplied?.managedModelKeys$ ?? createManagedModelKeys(),
+    modelPricing$: supplied?.modelPricing$ ?? createModelPricing(),
+  };
+}
+
 function createIdentityContext(
   userId: string,
   orgId: string,
@@ -319,6 +344,7 @@ function createIdentityContext(
   const scope = { userId, orgId, agentId };
   const sharedOrg = supplied?.orgId === orgId ? supplied : undefined;
   const orgMetadata$ = sharedOrg?.orgMetadata$ ?? createRunOrgMetadata(orgId);
+  const modelSources = createModelSourceGroups(orgId, supplied);
   const plan$ =
     sharedOrg?.plan$ ??
     computed((get) => {
@@ -415,6 +441,7 @@ function createIdentityContext(
     allowance$,
     modelFacts$,
     memberModels$,
+    ...modelSources,
     memberMetadata$,
     connectorSelection$,
     permissionGrants$,
@@ -436,26 +463,32 @@ function createIdentityContext(
 export const preloadAgentRunContext$ = command(
   ({ get }, signals: AgentRunContextSignals, signal: AbortSignal): void => {
     signal.throwIfAborted();
+    // Start the launch-critical dependency chains before independent projections.
+    // All nodes still start in this post-commit turn; dispatch awaits none of them.
     const nodes: readonly Computed<Promise<unknown>>[] = [
+      signals.catalog$,
+      signals.connectors$,
+      signals.storage$,
       signals.agent$,
       signals.orgMetadata$,
       signals.plan$,
       signals.allowance$,
       signals.modelFacts$,
       signals.memberModels$,
+      signals.orgModelSources$,
+      signals.gatewayModelSources$,
       signals.memberMetadata$,
       signals.connectorSelection$,
       signals.permissionGrants$,
       signals.workflows$,
       signals.officialWorkflows$,
-      signals.storage$,
       signals.storageCache$,
       signals.featureSwitches$,
       signals.disabledPaidTools$,
       signals.environment$,
       signals.customConnectorDefinitions$,
-      signals.catalog$,
-      signals.connectors$,
+      signals.managedModelKeys$,
+      signals.modelPricing$,
     ];
     for (const node of nodes) {
       waitUntil(settle(get(node)));
