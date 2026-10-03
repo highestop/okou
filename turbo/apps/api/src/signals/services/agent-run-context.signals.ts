@@ -25,11 +25,10 @@ import {
   createOfficialWorkflowCatalog,
   type OfficialWorkflowContextFacts,
 } from "./official-workflow-context.signals";
-import {
-  createMemberModelBootstrap,
-  type OrgModelBootstrap,
-  type MemberModelBootstrap,
-  type RunOrgMetadata,
+import type {
+  OrgModelBootstrap,
+  MemberModelBootstrap,
+  RunOrgMetadata,
 } from "./model-bootstrap.service";
 import type { OrgPlanCapabilities } from "./org-plan-entitlement-read.service";
 import { agents } from "@okouai/db/schema/agent";
@@ -87,20 +86,13 @@ import {
   executionExpiredCredits,
   executionOrgPolicies,
 } from "./execution-org-context.service";
-import { createModelCatalog } from "./model-catalog.service";
 import { orgModelPolicyFactsFromSnapshot } from "./model-policy.service";
-import {
-  createAgentConnectorSelection,
-  type AgentConnectorSelection,
-} from "./execution-agent-connectors.service";
-import {
-  createConnectorPermissionGrants,
-  type ConnectorPermissionGrant,
-} from "./execution-connector-permissions.service";
-import {
-  createAgentWorkflowSelection,
-  type SelectedAgentWorkflow,
-} from "./execution-agent-workflows.service";
+import type { AgentConnectorSelection } from "./execution-agent-connectors.service";
+import { createAgentSelectionContext } from "./execution-agent-selection-context.service";
+import { createProviderContext } from "./execution-provider-context.service";
+import { createGlobalModelContext } from "./execution-global-model-context.service";
+import type { ConnectorPermissionGrant } from "./execution-connector-permissions.service";
+import type { SelectedAgentWorkflow } from "./execution-agent-workflows.service";
 import { variables } from "@okouai/db/schema/variable";
 import { and, count, eq, isNull, isNotNull, or, sql } from "drizzle-orm";
 import { QueryBuilder } from "drizzle-orm/pg-core";
@@ -321,19 +313,60 @@ function contextAgentSelection() {
   };
 }
 
+// Private graph ownership metadata; no package cache or public interface change.
+const globalModelOwner = Symbol("agentRunGlobalModelOwner");
+type OwnedAgentRunContext = AgentRunContextSignals & {
+  readonly [globalModelOwner]: ReturnType<
+    typeof createGlobalModelContext
+  >["catalog$"];
+};
+function hasGlobalModelOwner(
+  context: AgentRunContextSignals,
+): context is OwnedAgentRunContext {
+  return globalModelOwner in context;
+}
+
 function createModelSourceGroups(
   orgId: string,
+  userId: string,
   supplied?: AgentRunContextSignals,
 ) {
   const sharedOrg = supplied?.orgId === orgId ? supplied : undefined;
+  const sharedMember = sharedOrg?.userId === userId ? sharedOrg : undefined;
+  const providers =
+    sharedMember ?? createProviderContext(orgId, userId, !sharedOrg);
+  const globalReferences = supplied
+    ? hasGlobalModelOwner(supplied)
+      ? {
+          managedModelKeys$: supplied.managedModelKeys$,
+          modelPricing$: supplied.modelPricing$,
+          catalog$: supplied[globalModelOwner],
+        }
+      : undefined
+    : createGlobalModelContext();
+  if (!globalReferences) {
+    throw new Error("Agent run context has no global reference owner");
+  }
   return {
-    orgModelSources$:
-      sharedOrg?.orgModelSources$ ?? createOrgModelSources(orgId),
+    orgModelSources$: sharedOrg?.orgModelSources$ ?? providers.orgModelSources$,
+    memberModels$: providers.memberModels$,
     gatewayModelSources$:
       sharedOrg?.gatewayModelSources$ ?? createGatewayModelSources(orgId),
-    managedModelKeys$: supplied?.managedModelKeys$ ?? createManagedModelKeys(),
-    modelPricing$: supplied?.modelPricing$ ?? createModelPricing(),
+    managedModelKeys$: globalReferences.managedModelKeys$,
+    modelPricing$: globalReferences.modelPricing$,
+    globalReferences,
   };
+}
+
+function createRunAgentRow(agentId: string) {
+  return computed(async (get) => {
+    const [row] = await get(db$)
+      .select(contextAgentSelection())
+      .from(agents)
+      .where(eq(agents.id, agentId))
+      .limit(1);
+    return row ?? null;
+  });
 }
 
 function capturedFeatureSwitchContext(
@@ -350,7 +383,13 @@ function requirePreparedContextAgent(agent: BootstrapAgent | null): void {
   }
 }
 
-function createOrgContext(orgId: string, supplied?: AgentRunContextSignals) {
+function createOrgContext(
+  orgId: string,
+  userId: string,
+  supplied?: AgentRunContextSignals,
+) {
+  const { globalReferences, memberModels$, ...modelSources } =
+    createModelSourceGroups(orgId, userId, supplied);
   const sharedOrg = supplied?.orgId === orgId ? supplied : undefined;
   const orgRows$ = sharedOrg?.orgRows$ ?? createExecutionOrgRows(orgId);
   const orgMetadata$ =
@@ -373,7 +412,7 @@ function createOrgContext(orgId: string, supplied?: AgentRunContextSignals) {
       });
       return Number.isFinite(limit) ? limit : 0;
     });
-  const modelCatalog$ = createModelCatalog();
+  const modelCatalog$ = globalReferences.catalog$;
   const allowance$ =
     sharedOrg?.allowance$ ?? createUsageAllowanceContext(orgId);
   const modelFacts$ =
@@ -407,6 +446,9 @@ function createOrgContext(orgId: string, supplied?: AgentRunContextSignals) {
     concurrencyCapacity$,
     allowance$,
     modelFacts$,
+    globalReferences,
+    memberModels$,
+    modelSources,
   };
 }
 
@@ -424,23 +466,17 @@ function createIdentityContext(
     concurrencyCapacity$,
     allowance$,
     modelFacts$,
-  } = createOrgContext(orgId, supplied);
-  const modelSources = createModelSourceGroups(orgId, supplied);
+    globalReferences,
+    memberModels$,
+    modelSources,
+  } = createOrgContext(orgId, userId, supplied);
   const sharedMember =
     supplied?.orgId === orgId && supplied.userId === userId
       ? supplied
       : undefined;
-  const memberModels$ =
-    sharedMember?.memberModels$ ?? createMemberModelBootstrap(orgId, userId);
+  const agentRow$ = createRunAgentRow(agentId);
   const agent$ = computed(async (get): Promise<BootstrapAgent | null> => {
-    const [[row], org] = await Promise.all([
-      get(db$)
-        .select(contextAgentSelection())
-        .from(agents)
-        .where(eq(agents.id, agentId))
-        .limit(1),
-      get(orgMetadata$),
-    ]);
+    const [row, org] = await Promise.all([get(agentRow$), get(orgMetadata$)]);
     return row ? { ...row, defaultAgentId: org?.defaultAgentId ?? null } : null;
   });
   const memberContext = createExecutionMemberContext(scope);
@@ -457,8 +493,7 @@ function createIdentityContext(
       return executionCreditBalance(org, executionExpiredCredits(rows), pack);
     });
   const connectorContext = createConnectorContextGroups(userId, orgId, agentId);
-  const permissionGrants$ = createConnectorPermissionGrants(scope);
-  const workflows$ = createAgentWorkflowSelection(scope);
+  const { permissionGrants$, workflows$ } = connectorContext;
   const officialCatalog$ = reusedOfficialCatalog(supplied);
   const officialWorkflows$ = computed(async (get) => {
     const workflows = await get(workflows$);
@@ -503,7 +538,8 @@ function createIdentityContext(
     const snapshot = await get(connectorContext.environmentSnapshot$);
     return { variables: snapshot.variables };
   });
-  return {
+  const context: OwnedAgentRunContext = {
+    [globalModelOwner]: globalReferences.catalog$,
     ...scope,
     agent$,
     orgRows$,
@@ -530,6 +566,7 @@ function createIdentityContext(
     catalog$: connectorContext.catalog$,
     connectors$: connectorContext.connectors$,
   };
+  return context;
 }
 
 /**
@@ -1060,11 +1097,12 @@ function createConnectorContextGroups(
   orgId: string,
   agentId: string,
 ) {
-  const connectorSelection$ = createAgentConnectorSelection({
-    userId,
-    orgId,
-    agentId,
-  });
+  const { connectorSelection$, permissionGrants$, workflows$ } =
+    createAgentSelectionContext({
+      userId,
+      orgId,
+      agentId,
+    });
   const environmentSnapshot$ = createAgentEnvironment(userId, orgId);
   const customConnectorDefinitions$ = computed(async (get) => {
     return (await get(connectorSelection$)).customConnectorDefinitions;
@@ -1142,6 +1180,8 @@ function createConnectorContextGroups(
   });
   return {
     connectorSelection$,
+    permissionGrants$,
+    workflows$,
     environmentSnapshot$,
     customConnectorDefinitions$,
     catalog$,
