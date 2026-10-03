@@ -42,7 +42,7 @@ import {
   type PiModelPreparationInput,
 } from "./pi-sandbox-config";
 import {
-  createExecutionStorageObjects,
+  createResolvedExecutionStorageObjects,
   updateExecutionStoragePresignedUrlCache$,
   type ExecutionStorageRequest,
   PreparedExecutionStorageMount,
@@ -389,11 +389,6 @@ import {
   resolveRunSelectionModel,
 } from "./model-selection.service";
 import {
-  acceptedCatalogFromRow,
-  acceptedRevisionFromRow,
-  OFFICIAL_WORKFLOW_CATALOG_AUTHORITY,
-} from "./official-workflow-catalog-read.service";
-import {
   dispatchConfiguredOfficialWorkflowReconciliation$,
   type OfficialWorkflowReconciliationResult,
 } from "./official-workflow-reconciliation-dispatch.service";
@@ -536,11 +531,6 @@ import {
   modelProviderConnections,
   modelProviderSurfaces,
 } from "@okouai/db/schema/model-provider-gateway";
-import {
-  officialWorkflowCatalogReleases,
-  officialWorkflowCatalogState,
-  officialWorkflowDefinitionRevisions,
-} from "@okouai/db/schema/official-workflow-catalog";
 import { orgMembersCache } from "@okouai/db/schema/org-members-cache";
 import { presentationTemplates } from "@okouai/db/schema/presentation-template";
 import { slackChatThreadRoutes } from "@okouai/db/schema/slack-chat-thread-route";
@@ -699,6 +689,23 @@ import {
 import { buildAgentIdentityPrompt } from "./agent-identity-prompt.service";
 import { piStableContextVariantDigest } from "./pi-stable-context.service";
 import { SEED_SKILLS } from "@okouai/core/seed-skills";
+import type { OfficialWorkflowContextFacts } from "./official-workflow-context.signals";
+import {
+  mergeStorageIndexes,
+  storageRequestKey,
+  exactStorageVersionsFromIndex,
+  readStorageBaseIndex,
+  type StorageLookup,
+  type StorageRequest,
+  type StorageVersionIndexEntry,
+  type StorageIndexEntry,
+  type StorageIndex,
+} from "./storage-index.service";
+import {
+  storageVersionCacheKeySql,
+  cacheRowsFromProjection,
+} from "./execution-storage-cache-read.service";
+import { systemStoragePresignedUrlCache } from "@okouai/db/schema/system-storage-presigned-url-cache";
 import { resolveSkillRef, parseGitHubTreeUrl } from "@okouai/core/github-url";
 import { isWebChatTriggerSource } from "./chat-trigger-source.service";
 import { historyGenerationRunIdForStoredExecutionContext } from "./history-generation-run";
@@ -8028,17 +8035,6 @@ export function createThreadClaimRunObjects(
     }
     return { requestedFramework, modelProvider };
   });
-  const runWorkflowReadWorkflowInput$ = computed(async (get) => {
-    const { db, args } = await get(workflowInput$);
-    return {
-      db,
-      hasOfficialWorkflows: (args.injectSkillVolumes?.workflows ?? []).some(
-        (workflow) => {
-          return workflow.officialDefinitionName !== null;
-        },
-      ),
-    };
-  });
   const candidates$ = computed(async (get) => {
     const { args } = await get(workflowInput$);
     const modelState = await get(modelState$);
@@ -8060,37 +8056,10 @@ export function createThreadClaimRunObjects(
     );
   });
   const acceptedRunCatalog$ = computed(async (get) => {
-    const { db, hasOfficialWorkflows } = await get(
-      runWorkflowReadWorkflowInput$,
+    return (
+      (await get((await get(executionContext$)).officialWorkflows$))?.catalog ??
+      null
     );
-    if (!hasOfficialWorkflows) {
-      return null;
-    }
-    const [row] = await db
-      .select({
-        releaseId: officialWorkflowCatalogState.acceptedReleaseId,
-        payload: officialWorkflowCatalogReleases.payload,
-      })
-      .from(officialWorkflowCatalogState)
-      .innerJoin(
-        officialWorkflowCatalogReleases,
-        eq(
-          officialWorkflowCatalogReleases.id,
-          officialWorkflowCatalogState.acceptedReleaseId,
-        ),
-      )
-      .where(
-        eq(
-          officialWorkflowCatalogState.authority,
-          OFFICIAL_WORKFLOW_CATALOG_AUTHORITY,
-        ),
-      )
-      .limit(1);
-    const catalog = acceptedCatalogFromRow(row);
-    if (!catalog) {
-      throw new OfficialWorkflowRunAdmissionError();
-    }
-    return catalog;
   });
   const acceptedCandidates$ = computed(async (get) => {
     const [catalog, candidates] = await Promise.all([
@@ -8106,71 +8075,17 @@ export function createThreadClaimRunObjects(
     return acceptedRunCandidates(catalog, candidates);
   });
   const acceptedRunRevisions$ = computed(async (get) => {
-    const { db } = await get(runWorkflowReadWorkflowInput$);
-    const candidates = await get(acceptedCandidates$);
+    const [facts, candidates] = await Promise.all([
+      get((await get(executionContext$)).officialWorkflows$),
+      get(acceptedCandidates$),
+    ]);
     if (candidates.length === 0) {
       return [];
     }
-    const rows = await db
-      .select({
-        definitionName: officialWorkflowDefinitionRevisions.definitionName,
-        revision: officialWorkflowDefinitionRevisions.revision,
-        payload: officialWorkflowDefinitionRevisions.payload,
-        storageName: officialWorkflowDefinitionRevisions.storageName,
-        storageId: officialWorkflowDefinitionRevisions.storageId,
-        storageVersion: officialWorkflowDefinitionRevisions.storageVersion,
-      })
-      .from(officialWorkflowDefinitionRevisions)
-      .innerJoin(
-        storages,
-        and(
-          eq(storages.id, officialWorkflowDefinitionRevisions.storageId),
-          eq(storages.name, officialWorkflowDefinitionRevisions.storageName),
-          eq(storages.orgId, SYSTEM_ORG_ID),
-          eq(storages.userId, VOLUME_ORG_USER_ID),
-        ),
-      )
-      .innerJoin(
-        storageVersions,
-        and(
-          eq(
-            storageVersions.id,
-            officialWorkflowDefinitionRevisions.storageVersion,
-          ),
-          eq(
-            storageVersions.storageId,
-            officialWorkflowDefinitionRevisions.storageId,
-          ),
-        ),
-      )
-      .where(
-        or(
-          ...candidates.map(({ accepted }) => {
-            return and(
-              eq(
-                officialWorkflowDefinitionRevisions.definitionName,
-                accepted.name,
-              ),
-              eq(
-                officialWorkflowDefinitionRevisions.revision,
-                accepted.revision,
-              ),
-            );
-          }),
-        ),
-      )
-      .orderBy(
-        asc(officialWorkflowDefinitionRevisions.definitionName),
-        asc(officialWorkflowDefinitionRevisions.revision),
-      );
-    const revisions = new Map(
-      rows.map((row) => {
-        return [
-          JSON.stringify([row.definitionName, row.revision]),
-          acceptedRevisionFromRow(row),
-        ];
-      }),
-    );
+    if (!facts) {
+      throw new OfficialWorkflowRunAdmissionError();
+    }
+    const revisions = facts.revisions;
     return candidates.map(({ accepted }) => {
       return (
         revisions.get(JSON.stringify([accepted.name, accepted.revision])) ??
@@ -8207,7 +8122,12 @@ export function createThreadClaimRunObjects(
     },
   );
   const officialWorkflow$ = runWorkflowReadOfficialWorkflow$;
-  const workflow = { officialWorkflow$: officialWorkflow$ };
+  const workflow = {
+    officialWorkflow$: officialWorkflow$,
+    officialWorkflowFacts$: computed(async (get) => {
+      return await get((await get(executionContext$)).officialWorkflows$);
+    }),
+  };
   const userTimezone$ = computed(async (get) => {
     return (
       (await get(preCreateExecutionBootstrapMetadata$)).userInfo.timezone ??
@@ -8446,14 +8366,35 @@ export function createThreadClaimRunObjects(
       requests: selection.requests,
       timing: selection.args.timing,
     };
-    const index = await loadStorageBaseIndex(
-      input.db,
-      input.requests,
-      input.timing,
+    const prefetched = await get((await get(executionContext$)).storage$);
+    const ownedRequests = input.requests.filter((request) => {
+      return !prefetched.lookupKeys.has(
+        storageIndexKey(
+          request.lookup.orgId,
+          request.lookup.userId,
+          request.lookup.name,
+        ),
+      );
+    });
+    const index = mergeStorageIndexes(
+      prefetched.index,
+      await loadStorageBaseIndex(input.db, ownedRequests, input.timing),
     );
     // Keep the query and its selection together so dependent version reads
     // reuse this snapshot without walking the same upstream graph again.
-    return { selection, input, index };
+    const capturedVersionKeys = new Set(
+      prefetched.requests.map(storageRequestKey),
+    );
+    return {
+      selection,
+      input: {
+        ...input,
+        requests: input.requests.filter((request) => {
+          return !capturedVersionKeys.has(storageRequestKey(request));
+        }),
+      },
+      index,
+    };
   });
   const capturedStorageIndex$ = computed(async (get) => {
     const { selection, input, index } = await get(capturedStorageBaseIndex$);
@@ -8600,7 +8541,22 @@ export function createThreadClaimRunObjects(
             };
       },
     );
-    return { mounts, objects: createExecutionStorageObjects(mounts) };
+    const storageIndex = mergeStorageIndexes(
+      selected.plan.requested.input.storageIndex,
+      selected.plan.sessionWriteback?.input.storageIndex ?? new Map(),
+    );
+    const cache = await get((await get(executionContext$)).storageCache$);
+    const versions = exactStorageVersionsFromIndex(mounts, storageIndex);
+    const rows = [
+      ...cache.rows,
+      ...[...storageIndex.values()].flatMap((entry) => {
+        return entry.cachedUrls ?? [];
+      }),
+    ];
+    return {
+      mounts,
+      objects: createResolvedExecutionStorageObjects(mounts, versions, rows),
+    };
   });
   const preparedStorage$ = computed(
     async (
@@ -9002,6 +8958,9 @@ export function createThreadClaimRunObjects(
         runtimeContext.modelUsageLongContextMinTotalInputTokens,
       ...metadata,
       officialWorkflowRun,
+      officialWorkflowFacts: await get(
+        selectedRunContextShared.officialWorkflowFacts$,
+      ),
       userTimezone,
       featureSwitchContext: bodyContext.featureSwitchContext,
       selectedImageModel,
@@ -9644,7 +9603,12 @@ export function createThreadClaimRunObjects(
         selectedImageModel: context.selectedImageModel,
         cliAvailable: args.includeOkouTokenSecret === true,
       });
-      const { officialWorkflowRun, selectedImageModel, ...facts } = context;
+      const {
+        officialWorkflowRun,
+        officialWorkflowFacts,
+        selectedImageModel,
+        ...facts
+      } = context;
       const modelProvider = context.modelProvider;
       return {
         args,
@@ -9658,6 +9622,7 @@ export function createThreadClaimRunObjects(
           selectedImageModel,
           launchSnapshot,
           officialWorkflowRun,
+          officialWorkflowFacts,
           resolved: {
             agentId: context.resolved.agentId,
             continuedFromAgentSessionId:
@@ -10634,54 +10599,6 @@ interface ResolvedVolume {
   readonly system?: boolean;
 }
 
-interface StorageLookup {
-  readonly orgId: string;
-  readonly userId: string;
-  readonly name: string;
-}
-
-interface StorageRequest {
-  readonly lookup: StorageLookup;
-  readonly version: string | undefined;
-}
-
-interface StorageIndexRequest {
-  readonly lookup: StorageLookup;
-  readonly exactVersionId: string | null;
-}
-
-interface StorageIndexRow {
-  readonly orgId: string;
-  readonly userId: string;
-  readonly name: string;
-  readonly storageId: string;
-  readonly headVersionId: string | null;
-  readonly s3Prefix: string;
-  readonly headId: string | null;
-  readonly headS3Key: string | null;
-  readonly headArchiveSize: number | null;
-  readonly headFileCount: number | null;
-  readonly exactId: string | null;
-  readonly exactS3Key: string | null;
-  readonly exactArchiveSize: number | null;
-  readonly exactFileCount: number | null;
-}
-
-interface StorageVersionIndexEntry {
-  readonly id: string;
-  readonly s3Key: string;
-  readonly archiveSize: number;
-  readonly fileCount: number;
-}
-
-interface StorageIndexEntry {
-  readonly storageId: string;
-  readonly headVersionId: string | null;
-  readonly s3Prefix: string;
-  readonly headVersion: StorageVersionIndexEntry | null;
-  readonly exactVersions: ReadonlyMap<string, StorageVersionIndexEntry>;
-}
-
 interface StorageManifestInputs {
   readonly artifacts: readonly ContextArtifact[];
   readonly composeVolumes: readonly ResolvedVolume[];
@@ -10774,15 +10691,6 @@ interface StorageManifestPhaseTimingWindow {
   startedAt: number | undefined;
   finishedAt: number | undefined;
 }
-
-/**
- * Pre-fetched (orgId, userId, name) -> storage row and requested exact-version
- * map. A single run resolves dozens to hundreds of volumes/artifacts; looking
- * each one up with its own database round-trip saturates the connection pool,
- * so the exact requested rows and full pinned versions are loaded once and
- * resolved from memory instead.
- */
-type StorageIndex = ReadonlyMap<string, StorageIndexEntry>;
 
 class StorageManifestEntryPhaseTiming {
   private readonly resolveWindow: StorageManifestPhaseTimingWindow = {
@@ -11015,95 +10923,18 @@ function isFullStorageVersionId(version: string): boolean {
   return version.length === VERSION_ID_LENGTH && isValidVersionPrefix(version);
 }
 
-const headStorageVersions = alias(storageVersions, "head_storage_versions");
-
-const exactStorageVersions = alias(storageVersions, "exact_storage_versions");
-
-function uniqueStorageIndexRequests(
-  requests: readonly StorageRequest[],
-): readonly StorageIndexRequest[] {
-  const requestsByKey = new Map<string, StorageIndexRequest>();
-  for (const request of requests) {
-    const exactVersionId =
-      request.version !== undefined && isFullStorageVersionId(request.version)
-        ? request.version
-        : null;
-    requestsByKey.set(
-      JSON.stringify([
-        request.lookup.orgId,
-        request.lookup.userId,
-        request.lookup.name,
-        exactVersionId,
-      ]),
-      { lookup: request.lookup, exactVersionId },
-    );
-  }
-  return [...requestsByKey.values()];
-}
-
-function buildStorageIndex(rows: readonly StorageIndexRow[]): StorageIndex {
-  const exactVersionsByStorageId = new Map<
-    string,
-    Map<string, StorageVersionIndexEntry>
-  >();
-  for (const row of rows) {
-    if (
-      row.exactId === null ||
-      row.exactS3Key === null ||
-      row.exactArchiveSize === null ||
-      row.exactFileCount === null
-    ) {
-      continue;
-    }
-    const versions =
-      exactVersionsByStorageId.get(row.storageId) ??
-      new Map<string, StorageVersionIndexEntry>();
-    versions.set(row.exactId, {
-      id: row.exactId,
-      s3Key: row.exactS3Key,
-      archiveSize: row.exactArchiveSize,
-      fileCount: row.exactFileCount,
-    });
-    exactVersionsByStorageId.set(row.storageId, versions);
-  }
-
-  const index = new Map<string, StorageIndexEntry>();
-  for (const row of rows) {
-    const key = storageIndexKey(row.orgId, row.userId, row.name);
-    if (index.has(key)) {
-      continue;
-    }
-    index.set(key, {
-      storageId: row.storageId,
-      headVersionId: row.headVersionId,
-      s3Prefix: row.s3Prefix,
-      headVersion:
-        row.headId &&
-        row.headS3Key &&
-        row.headArchiveSize !== null &&
-        row.headFileCount !== null
-          ? {
-              id: row.headId,
-              s3Key: row.headS3Key,
-              archiveSize: row.headArchiveSize,
-              fileCount: row.headFileCount,
-            }
-          : null,
-      exactVersions:
-        exactVersionsByStorageId.get(row.storageId) ??
-        new Map<string, StorageVersionIndexEntry>(),
-    });
-  }
-  return index;
-}
-
 interface StoragePrefixVersionRequest {
   readonly storageId: string;
   readonly version: string;
+  readonly lookup: StorageLookup;
 }
 
 interface StoragePrefixVersionRow extends StorageVersionIndexEntry {
   readonly storageId: string;
+  readonly cacheKey: string | null;
+  readonly cacheScope: string | null;
+  readonly presignedUrl: string | null;
+  readonly expiresAt: Date | null;
 }
 
 function storagePrefixVersionRequests(
@@ -11113,11 +10944,7 @@ function storagePrefixVersionRequests(
   const unique = new Map<string, StoragePrefixVersionRequest>();
   for (const request of requests) {
     const version = request.version;
-    if (
-      version === undefined ||
-      version === "latest" ||
-      isFullStorageVersionId(version)
-    ) {
+    if (version === undefined || version === "latest") {
       continue;
     }
     const storage = index.get(
@@ -11127,10 +10954,15 @@ function storagePrefixVersionRequests(
         request.lookup.name,
       ),
     );
-    if (storage) {
+    if (
+      storage &&
+      storage.headVersion?.id !== version &&
+      !storage.exactVersions.has(version)
+    ) {
       unique.set(JSON.stringify([storage.storageId, version]), {
         storageId: storage.storageId,
         version,
+        lookup: request.lookup,
       });
     }
   }
@@ -11161,6 +10993,14 @@ function storageIndexWithPrefixVersions(
           ? {
               ...entry,
               exactVersions: new Map([...entry.exactVersions, ...added]),
+              cachedUrls: [
+                ...(entry.cachedUrls ?? []),
+                ...versions
+                  .filter((version) => {
+                    return version.storageId === entry.storageId;
+                  })
+                  .flatMap(cacheRowsFromProjection),
+              ],
             }
           : entry,
       ];
@@ -12363,23 +12203,6 @@ function selectedRunStorageExecution(
   };
 }
 
-function storageIndexRequestColumns(requests: readonly StorageIndexRequest[]) {
-  return {
-    orgIds: requests.map((request) => {
-      return request.lookup.orgId;
-    }),
-    userIds: requests.map((request) => {
-      return request.lookup.userId;
-    }),
-    names: requests.map((request) => {
-      return request.lookup.name;
-    }),
-    exactVersionIds: requests.map((request) => {
-      return request.exactVersionId;
-    }),
-  };
-}
-
 /**
  * Shared storage index read: storage rows with their HEAD and exact requested
  * versions in one fixed-shape statement. Prefix versions are a separate read
@@ -12394,61 +12217,8 @@ async function loadStorageBaseIndex(
     timing,
     "api_dispatch_prepare_storage_manifest_load_storage_index",
     "nested",
-    async () => {
-      const uniqueRequests = uniqueStorageIndexRequests(requests);
-      if (uniqueRequests.length === 0) {
-        return new Map<string, StorageIndexEntry>();
-      }
-      const { orgIds, userIds, names, exactVersionIds } =
-        storageIndexRequestColumns(uniqueRequests);
-      // Raw array interpolation expands to a SQL tuple in Drizzle. Keep each
-      // zipped array in one driver parameter so the statement shape stays fixed.
-      const rows: StorageIndexRow[] = await db
-        .select({
-          orgId: storages.orgId,
-          userId: storages.userId,
-          name: storages.name,
-          storageId: storages.id,
-          headVersionId: storages.headVersionId,
-          s3Prefix: storages.s3Prefix,
-          headId: headStorageVersions.id,
-          headS3Key: headStorageVersions.s3Key,
-          headArchiveSize: headStorageVersions.archiveSize,
-          headFileCount: headStorageVersions.fileCount,
-          exactId: exactStorageVersions.id,
-          exactS3Key: exactStorageVersions.s3Key,
-          exactArchiveSize: exactStorageVersions.archiveSize,
-          exactFileCount: exactStorageVersions.fileCount,
-        })
-        .from(storages)
-        .innerJoin(
-          sql`unnest(
-        ${sql.param(orgIds)}::text[],
-        ${sql.param(userIds)}::text[],
-        ${sql.param(names)}::varchar(256)[],
-        ${sql.param(exactVersionIds)}::varchar(64)[]
-      ) AS requested(org_id, user_id, name, version_id)`,
-          and(
-            eq(storages.orgId, sql`requested.org_id`),
-            eq(storages.userId, sql`requested.user_id`),
-            eq(storages.name, sql`requested.name`),
-          ),
-        )
-        .leftJoin(
-          headStorageVersions,
-          eq(storages.headVersionId, headStorageVersions.id),
-        )
-        .leftJoin(
-          exactStorageVersions,
-          and(
-            eq(
-              exactStorageVersions.id,
-              sql`NULLIF(requested.version_id, ${storages.headVersionId})`,
-            ),
-            eq(exactStorageVersions.storageId, storages.id),
-          ),
-        );
-      return buildStorageIndex(rows);
+    () => {
+      return readStorageBaseIndex(db, requests);
     },
   );
 }
@@ -12468,8 +12238,25 @@ async function withStoragePrefixVersions(
           s3Key: storageVersions.s3Key,
           archiveSize: storageVersions.archiveSize,
           fileCount: storageVersions.fileCount,
+          cacheKey: systemStoragePresignedUrlCache.cacheKey,
+          cacheScope: systemStoragePresignedUrlCache.scope,
+          presignedUrl: systemStoragePresignedUrlCache.presignedUrl,
+          expiresAt: systemStoragePresignedUrlCache.expiresAt,
         })
         .from(storageVersions)
+        .leftJoin(
+          systemStoragePresignedUrlCache,
+          eq(
+            systemStoragePresignedUrlCache.cacheKey,
+            storageVersionCacheKeySql({
+              orgId: sql`${request.lookup.orgId}`,
+              userId: sql`${request.lookup.userId}`,
+              name: sql`${request.lookup.name}`,
+              versionId: sql`${storageVersions.id}`,
+              s3Key: sql`${storageVersions.s3Key}`,
+            }),
+          ),
+        )
         .where(
           and(
             eq(storageVersions.storageId, request.storageId),
@@ -12668,6 +12455,7 @@ interface PendingRunContext {
   readonly selectedImageModel: ImageModel;
   readonly launchSnapshot: AgentRunFullLaunchSnapshot;
   readonly officialWorkflowRun: OfficialWorkflowRunObservation | undefined;
+  readonly officialWorkflowFacts: OfficialWorkflowContextFacts;
   readonly resolved: {
     readonly agentId: string | null;
     readonly continuedFromAgentSessionId?: string;
@@ -19435,7 +19223,7 @@ export const commitPreparedPendingLaunch$ = command(
         }
         while ("kind" in admission && admission.kind === "statement") {
           const step = admission;
-          if (step.phase === "catalog") {
+          if (step.phase === "installation") {
             admissionTiming.admissionStarted();
           }
           const rows = parseRawRows(admissionRow, await tx.execute(step.sql));

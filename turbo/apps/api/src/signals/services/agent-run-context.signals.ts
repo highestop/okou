@@ -1,6 +1,23 @@
 import { command, computed, type Computed } from "ccstate";
 import { waitUntil } from "../context/wait-until";
 import {
+  agentStorageRequests,
+  agentStorageCacheMounts,
+  type AgentStorageContext,
+} from "./agent-storage-context.service";
+import { executionStorageCachePairs } from "./execution-storage.service";
+import type { ExecutionStorageCacheRows } from "./execution-storage-cache-read.service";
+import {
+  readStorageBaseIndex,
+  mergeStorageIndexes,
+  storageIndexKey,
+} from "./storage-index.service";
+import {
+  createOfficialWorkflowFacts,
+  createOfficialWorkflowCatalog,
+  type OfficialWorkflowContextFacts,
+} from "./official-workflow-context.signals";
+import {
   createModelFacts,
   createMemberModelBootstrap,
   type OrgModelBootstrap,
@@ -124,6 +141,15 @@ export interface AgentRunContextSignals {
     Promise<readonly ConnectorPermissionGrant[]>
   >;
   readonly workflows$: Computed<Promise<readonly SelectedAgentWorkflow[]>>;
+  readonly officialCatalog$: ReturnType<typeof createOfficialWorkflowCatalog>;
+  readonly officialWorkflows$: Computed<Promise<OfficialWorkflowContextFacts>>;
+  readonly storage$: Computed<Promise<AgentStorageContext>>;
+  readonly storageCache$: Computed<
+    Promise<{
+      readonly keys: ReadonlySet<string>;
+      readonly rows: ExecutionStorageCacheRows;
+    }>
+  >;
   readonly featureSwitches$: Computed<Promise<BootstrapFeatureSwitchContext>>;
   readonly disabledPaidTools$: Computed<Promise<readonly string[]>>;
   readonly environment$: Computed<Promise<BootstrapEnvironment>>;
@@ -193,6 +219,97 @@ export function matchAgentRunContextSignals(
   return createIdentityContext(userId, orgId, agentId, supplied);
 }
 
+function createStorageContextGroups(
+  orgId: string,
+  inputs: Pick<
+    AgentRunContextSignals,
+    "workflows$" | "connectorSelection$" | "catalog$" | "officialWorkflows$"
+  >,
+) {
+  const storage$ = computed(async (get): Promise<AgentStorageContext> => {
+    const [workflows, selection, catalog, official] = await Promise.all([
+      get(inputs.workflows$),
+      get(inputs.connectorSelection$),
+      get(inputs.catalog$),
+      get(inputs.officialWorkflows$),
+    ]);
+    const requests = agentStorageRequests(
+      orgId,
+      workflows,
+      selection,
+      catalog,
+      official,
+    );
+    const published = official?.storageIndex ?? new Map();
+    const index = mergeStorageIndexes(
+      await readStorageBaseIndex(
+        get(db$),
+        requests.filter((request) => {
+          return !published.has(
+            JSON.stringify([
+              request.lookup.orgId,
+              request.lookup.userId,
+              request.lookup.name,
+            ]),
+          );
+        }),
+      ),
+      published,
+    );
+    return {
+      requests,
+      lookupKeys: new Set(
+        requests.map((request) => {
+          return storageIndexKey(
+            request.lookup.orgId,
+            request.lookup.userId,
+            request.lookup.name,
+          );
+        }),
+      ),
+      index,
+    };
+  });
+  const storageCache$ = computed(async (get) => {
+    const { mounts, versions } = agentStorageCacheMounts(await get(storage$));
+    const { pairs } = executionStorageCachePairs(mounts, versions);
+    return {
+      keys: new Set(
+        pairs.map((pair) => {
+          return JSON.stringify([pair.scope, pair.cacheKey]);
+        }),
+      ),
+      rows: [...(await get(storage$)).index.values()].flatMap((entry) => {
+        return entry.cachedUrls ?? [];
+      }),
+    };
+  });
+  return { storage$, storageCache$ };
+}
+
+function reusedOfficialCatalog(supplied: AgentRunContextSignals | undefined) {
+  return supplied?.officialCatalog$ ?? createOfficialWorkflowCatalog();
+}
+
+function createSelectedOfficialFacts(
+  workflows$: AgentRunContextSignals["workflows$"],
+  officialCatalog$: AgentRunContextSignals["officialCatalog$"],
+) {
+  return computed(async (get) => {
+    const workflows = await get(workflows$);
+    if (
+      !workflows.some((workflow) => {
+        return workflow.officialDefinitionName !== null;
+      })
+    ) {
+      return null;
+    }
+    return await get(
+      createOfficialWorkflowFacts(workflows, await get(officialCatalog$)),
+    );
+  });
+}
+
 function createIdentityContext(
   userId: string,
   orgId: string,
@@ -253,6 +370,17 @@ function createIdentityContext(
   } = createConnectorContextGroups(userId, orgId, agentId);
   const permissionGrants$ = createConnectorPermissionGrants(scope);
   const workflows$ = createAgentWorkflowSelection(scope);
+  const officialCatalog$ = reusedOfficialCatalog(supplied);
+  const officialWorkflows$ = createSelectedOfficialFacts(
+    workflows$,
+    officialCatalog$,
+  );
+  const { storage$, storageCache$ } = createStorageContextGroups(orgId, {
+    workflows$,
+    connectorSelection$,
+    catalog$,
+    officialWorkflows$,
+  });
   const featureSwitchOverrides$ = userFeatureSwitchOverrides(orgId, userId);
   const disabledPaidTools$ = createAgentDisabledPaidTools(userId, orgId);
   const featureSwitchContext$ =
@@ -291,6 +419,10 @@ function createIdentityContext(
     connectorSelection$,
     permissionGrants$,
     workflows$,
+    officialCatalog$,
+    officialWorkflows$,
+    storage$,
+    storageCache$,
     featureSwitches$: featureSwitchContext$,
     disabledPaidTools$,
     environment$,
@@ -315,6 +447,9 @@ export const preloadAgentRunContext$ = command(
       signals.connectorSelection$,
       signals.permissionGrants$,
       signals.workflows$,
+      signals.officialWorkflows$,
+      signals.storage$,
+      signals.storageCache$,
       signals.featureSwitches$,
       signals.disabledPaidTools$,
       signals.environment$,

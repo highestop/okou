@@ -21,6 +21,16 @@ in [API ccstate design](api-ccstate.md#1-factories-take-plain-values).
 - `connectors$`: #37563's joined account/variable/credential statement, source
   snapshots and safely settled credential decryption. `environment$` shares the
   same statement; there is no second variable or selected-secret query.
+- `officialCatalog$`: global accepted catalog, shared across identity changes.
+  It starts only when selected Official Workflows consume it, avoiding extra
+  reads for Agents with no Official mounts.
+- `officialWorkflows$`: accepted catalog, immutable revisions and their exact
+  Storage rows, selected from mounted Workflow identities without model routing.
+- `storage$`: Agent-owned skill/Connector mount lookup keys and the shared
+  HEAD/exact-version index. Published Official rows are reused from revisions.
+- `storageCache$`: a pure projection of all three read-only URL-cache scopes
+  returned by index/revision JOINs. It issues no separate SQL. Missing cache
+  rows are authoritative; local signing does not reread them.
 - `memberMetadata$`, `permissionGrants$`, `workflows$`, `featureSwitches$`,
   `disabledPaidTools$`, `environment$`, `connectorSelection$`,
   `customConnectorDefinitions$` and `catalog$`: individually consumable groups.
@@ -57,16 +67,21 @@ preparation admission checks use that snapshot. Expired-credit and usage-pack
 calculations retain their existing reads. Another run's spending or a payment
 between capture and admission does not replace the balance snapshot.
 The captured plan also determines the free-plan admission bit. Thread does not
-restore plan `FOR UPDATE`; the Pi maintenance entrypoint also captures the plan outside its launch transaction
-and uses that snapshot without `FOR UPDATE`. Its credential, subscription,
-job/version and allowance activation fences remain unchanged. Account transaction validation, official workflow admission,
-thread/session, lease and queue fences remain intact.
+restore plan `FOR UPDATE`; the Pi maintenance entrypoint also captures the plan
+outside its launch transaction and uses that snapshot without `FOR UPDATE`.
+Its credential, subscription, job/version and allowance activation fences
+remain unchanged. Account transaction validation, official workflow
+pointer/installation/automation admission, thread/session, lease and queue
+fences remain intact.
 
 ## Scope and acceptance boundary
 
-This change restructures the existing Agent/model sources and the Connector
-sources merged in #37563. It adds no new official-workflow/storage groups. The org-only `allowance$`
-group prepares its read once; launch-time allowance activation remains fenced. #37563's removed current-catalog revalidation remains removed: a pick
+The W0 change restructured Agent/model sources and the Connector sources merged
+in #37563; the A-group extension adds Official Workflow and Agent Storage groups.
+The B-group org-only `allowance$` prepares its read once; launch-time allowance
+activation remains fenced. Agent and feature-switch consumers reuse their
+captured context groups. #37563's removed current-catalog revalidation remains
+removed: a pick
 uses one captured generation, including when the live catalog changes during
 preload. Thread connector selections still read in S3 but start independently
 of prompt/model material. Per-account credential failures remain settled until
@@ -79,6 +94,34 @@ an external attachment response is pending, and fail-fast matching preload
 failure. #37563's captured-generation behavior and next-pick account-default visibility are preserved. Deployed parent/PR
 trace comparison reports statement/table counts separately from runner output,
 and does not claim production latency improvements from a small sample.
+
+## Official Workflow and Storage snapshot authority
+
+The accepted catalog reuses its global authority key. Selected revision facts
+and Agent mount groups reuse only the complete org/user/Agent identity. Revision selection has no model/CLI/path dependency: Thread assembles
+framework-specific mount paths later from the captured accepted definitions.
+Thread/session memory, previous-session versions and request-owned mount keys
+stay local. Their keys use the same index/cache JOIN loader once; an absent Agent row or a
+failed Agent snapshot is never retried by the thread loader. The exact Storage
+rows and joined URL-cache rows resolved for the manifest also feed execution
+signing, eliminating both the second `readExactVersions` call and a standalone
+cache SELECT. A thread-owned historical/prefix version lookup likewise joins
+its cache row without reloading the Storage identity. SQL cache keys use the
+same policy constants and canonical JSON representation as the JS signer. Pi maintenance keeps its own standalone loader.
+
+`official-workflow-catalog-sync.service.ts` is the production publisher for
+release/revision rows. Both persistence functions use `onConflictDoNothing`,
+then compare canonical payload and artifact identity; a differing existing row
+rejects publication rather than being updated. Repository production writers
+neither update nor delete these two immutable tables. Revision Storage and
+version foreign keys prevent deleting referenced artifacts. Test-only catalog
+reset routes are not a production mutation path.
+
+The launch transaction retains catalog `FOR SHARE` and obtains the accepted
+release ID in that locked statement. It must equal both the captured catalog
+and run provenance. Under that fence, immutable captured payload/revisions need
+no second SELECT. Installation and automation `FOR UPDATE` checks remain live;
+no plan lock or subscription-account fence changes in this extension.
 
 ## Thread/message request facts
 
