@@ -12,9 +12,11 @@ import { safeSync } from "../utils";
 
 type ApiDispatchTimingSpanKind = "top_level" | "nested";
 export type ApiDispatchTimingDimensions = Readonly<Record<string, string>>;
+// Bounded string dimensions and numeric observation metrics share the ingest fields.
+type ApiDispatchTimingFields = Readonly<Record<string, string | number>>;
 export type ApiDispatchTimingDimensionsInput =
-  | ApiDispatchTimingDimensions
-  | (() => ApiDispatchTimingDimensions | undefined);
+  | ApiDispatchTimingFields
+  | (() => ApiDispatchTimingFields | undefined);
 
 type ApiProcessAgeBucket =
   | "0_1s"
@@ -365,7 +367,7 @@ interface ApiDispatchTimingRecord {
   readonly spanKind: ApiDispatchTimingSpanKind;
   readonly durationMs: number;
   readonly timestamp: string;
-  readonly dimensions?: ApiDispatchTimingDimensions;
+  readonly dimensions?: ApiDispatchTimingFields;
 }
 
 export class ApiDispatchTimingCollector {
@@ -540,6 +542,6 @@ export async function measureApiDispatchTiming<T>(
 
 function resolveApiDispatchTimingDimensions(
   dimensions: ApiDispatchTimingDimensionsInput | undefined,
-): ApiDispatchTimingDimensions | undefined {
+): ApiDispatchTimingFields | undefined {
   return typeof dimensions === "function" ? dimensions() : dimensions;
 }
