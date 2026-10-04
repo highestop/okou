@@ -19,6 +19,7 @@ import { signSandboxJwtForTests } from "../../auth/tokens";
 import { settle } from "../../utils";
 import { createAuthDeviceApiActions } from "./helpers/api-bdd-auth-device";
 import { createBddApi, type ApiTestUser } from "./helpers/api-bdd";
+import { mockClerkMembership } from "./helpers/api-bdd-clerk";
 import {
   awsVerificationCode,
   createConnectorBddApi,
@@ -1318,6 +1319,98 @@ describe("POST /api/connectors/diagnostics/check", () => {
       expect(context.mocks.axiom.query).not.toHaveBeenCalled();
     });
   });
+
+  it.each(["user", "organization"] as const)(
+    "keeps active Run registration preflight isolated across %s boundaries",
+    async (boundary) => {
+      const owner = bdd.user();
+      const foreign =
+        boundary === "user"
+          ? bdd.user({ orgId: requireOrgId(owner) })
+          : bdd.user({ userId: owner.userId });
+      await bdd.completeOnboarding(owner);
+      await bdd.completeOnboarding(foreign);
+      const runs: { readonly actor: ApiTestUser; readonly runId: string }[] =
+        [];
+      const checks = await settle(
+        (async () => {
+          const owned = await createOwnedRun(owner);
+          runs.push({ actor: owner, runId: owned.runId });
+          const capabilities = ["connector:read", "agent-run:read"] as const;
+          const ownerToken = okouToken(owner, owned.runId, capabilities);
+          const foreignToken = okouToken(foreign, owned.runId, capabilities);
+          const missingToken = okouToken(foreign, randomUUID(), capabilities);
+          const requests: readonly ConnectorCheckRequestBody[] = [
+            {
+              mode: "url",
+              method: "GET",
+              url: `https://${randomUUID()}.example.test/owned`,
+            },
+            { mode: "environment", environmentName: "GH_TOKEN" },
+          ];
+          for (const body of requests) {
+            mockClerkMembership(context, owner, "org:admin");
+            const original = await checkWithToken(ownerToken, body);
+            if (body.mode === "url") {
+              expect(original.body).toStrictEqual({
+                outcome: "no-match",
+                scope: "run",
+              });
+            } else {
+              expect(original.body).toMatchObject({
+                outcome: "resolved",
+                mode: "environment",
+                connector: { connectorSlug: "github" },
+                environmentName: "GH_TOKEN",
+                run: { status: "not-configured" },
+                permission: null,
+              });
+            }
+            mockClerkMembership(context, foreign, "org:admin");
+            const rejected = await accept(
+              client().check({
+                headers: { authorization: `Bearer ${foreignToken}` },
+                body,
+              }),
+              [404],
+            );
+            const missing = await accept(
+              client().check({
+                headers: { authorization: `Bearer ${missingToken}` },
+                body,
+              }),
+              [404],
+            );
+            expect(rejected.body).toStrictEqual({
+              error: { code: "NOT_FOUND", message: "Agent run not found" },
+            });
+            expect(missing.body).toStrictEqual(rejected.body);
+            mockClerkMembership(context, owner, "org:admin");
+            const unchanged = await checkWithToken(ownerToken, body);
+            expect(unchanged.body).toStrictEqual(original.body);
+          }
+        })(),
+      );
+      const cleanupErrors: unknown[] = [];
+      for (const run of [...runs].reverse()) {
+        const deleted = await settle(
+          runsApi.requestCancelRun(run.actor, run.runId, [200]),
+        );
+        if (!deleted.ok) {
+          cleanupErrors.push(deleted.error);
+        }
+      }
+      if (cleanupErrors.length > 0) {
+        throw new AggregateError(
+          [...(!checks.ok ? [checks.error] : []), ...cleanupErrors],
+          "Run registration fixture cleanup failed",
+        );
+      }
+      if (!checks.ok) {
+        throw checks.error;
+      }
+    },
+  );
 
   it("rejects connector diagnostics from another owner of the same organization", async () => {
     const owner = bdd.user();
