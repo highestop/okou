@@ -1095,9 +1095,13 @@ function ChatThreadFilterMenuItems() {
           size={16}
           className={`mr-2 ${unreadOnly || archivedOnly || mutedOnly ? "invisible" : ""}`}
         />
-        {t(($) => {
-          return $.chat.sidebar.allChats;
-        })}
+        {archiveEnabled
+          ? t(($) => {
+              return $.chat.sidebar.inbox;
+            })
+          : t(($) => {
+              return $.chat.sidebar.allChats;
+            })}
       </DropdownMenuItem>
       <DropdownMenuItem
         onClick={() => {
