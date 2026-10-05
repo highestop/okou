@@ -398,8 +398,7 @@ const FEATURE_SWITCHES: Record<FeatureSwitchKey, FeatureSwitch> = {
     maintainer: "ethan@okou.ai",
     description:
       "Allow personal Codex and Claude Code subscriptions to store and manually switch between multiple accounts.",
-    enabled: false,
-    enabledOrgIdHashes: STAFF_ORG_ID_HASHES,
+    enabled: true,
   },
   [FeatureSwitchKey.LarkIntegration]: {
     maintainer: "linghan@okou.ai",
