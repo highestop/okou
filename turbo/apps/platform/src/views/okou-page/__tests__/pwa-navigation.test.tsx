@@ -1,4 +1,5 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 
 import {
@@ -168,8 +169,7 @@ test("Switch between the desktop composer and mobile chat list as the browser re
     viewport.setMatches(false);
   });
 
-  await screen.findByRole("heading", { name: "Chats" });
-  expect(screen.getByText("Responsive planning")).toBeInTheDocument();
+  await screen.findByText("Responsive planning");
   expect(
     screen.getByRole("navigation", { name: "Main navigation" }),
   ).toBeInTheDocument();
@@ -191,6 +191,62 @@ test("Switch between the desktop composer and mobile chat list as the browser re
   ).not.toBeInTheDocument();
   expect(window.location.pathname).toBe(CHAT_LIST_PATH);
 });
+
+test.each([false, true])(
+  "Open workspace search from the compact mobile chat header (standalone: %s)",
+  async (standalone) => {
+    mockDisplayMode({ standalone, desktop: false });
+    const caseId = standalone ? 82 : 81;
+    const workspace = installContinuityWorkspace(context, {
+      caseId,
+      threads: [continuityThread(caseId, 1, "Search planning")],
+    });
+
+    await setupPage({
+      context,
+      path: CHAT_LIST_PATH,
+      featureSwitches: {
+        [FeatureSwitchKey.PwaNavigation]: true,
+        [FeatureSwitchKey.ChatThreadArchiving]: true,
+      },
+      ...workspace.pageOptions,
+    });
+
+    await screen.findByText("Search planning");
+    const search = screen.getByLabelText("Search workspace");
+    const header = search.closest("header");
+    if (!header) {
+      throw new Error("Expected workspace search in the chat list header");
+    }
+    expect(
+      queryAllByRoleFast("button", header).map((button) => {
+        return button.getAttribute("aria-label");
+      }),
+    ).toStrictEqual([
+      "Switch agent",
+      "Search workspace",
+      "New chat",
+      "Open chat list menu",
+    ]);
+
+    click(search);
+    const dialog = await screen.findByRole("dialog", {
+      name: "Search workspace...",
+    });
+    expect(
+      within(dialog).getByPlaceholderText("Search workspace..."),
+    ).toHaveFocus();
+
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("dialog", { name: "Search workspace..." }),
+      ).not.toBeInTheDocument();
+    });
+    expect(screen.getByText("Search planning")).toBeInTheDocument();
+    expect(window.location.pathname).toBe(CHAT_LIST_PATH);
+  },
+);
 
 test("Keep Me within mobile widths while the browser resizes", async () => {
   const viewport = context.mocks.browser.matchMedia(false);
