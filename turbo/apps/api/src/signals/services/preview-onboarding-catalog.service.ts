@@ -30,7 +30,10 @@ import { env } from "../../lib/env";
 import { nowDate } from "../../lib/time";
 import { db$, writeDb$ } from "../external/db";
 import { downloadS3BufferWithMaxBytes } from "../external/s3";
-import { immutableCatalogValues } from "./connector-catalog-immutable.service";
+import {
+  immutableCatalogEntryColumns,
+  immutableCatalogValues,
+} from "./connector-catalog-immutable.service";
 import {
   connectorCatalogSource,
   type ConnectorCatalogSource,
@@ -93,11 +96,6 @@ const preparePreviewCatalogSkills$ = command(
         name: storages.name,
         s3Prefix: storages.s3Prefix,
         s3Key: storageVersions.s3Key,
-        size: storageVersions.size,
-        archiveSize: storageVersions.archiveSize,
-        fileCount: storageVersions.fileCount,
-        message: storageVersions.message,
-        createdBy: storageVersions.createdBy,
       })
       .from(storageVersions)
       .innerJoin(storages, eq(storageVersions.storageId, storages.id))
@@ -273,7 +271,12 @@ export const seedPreviewOnboardingCatalog$ = command(
       signal.throwIfAborted();
       await tx.insert(connectorCatalogEntries).values(
         projection.connectors.map((entry) => {
-          return { hash: current.hash, slug: entry.slug, payload: entry };
+          return {
+            hash: current.hash,
+            slug: entry.slug,
+            payload: entry,
+            ...immutableCatalogEntryColumns(entry),
+          };
         }),
       );
       signal.throwIfAborted();

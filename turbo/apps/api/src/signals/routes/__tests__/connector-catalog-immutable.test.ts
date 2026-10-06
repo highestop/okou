@@ -323,11 +323,21 @@ function release(
   label: string,
   runtimeChange = false,
   entrySlug?: string,
+  skillMetadataChange = false,
 ) {
   const artifact = connectorCatalogArtifactSchema.parse(
     structuredClone(API_TEST_CONNECTOR_CATALOG_ARTIFACT),
   );
   artifact.catalogVersion = version;
+  if (skillMetadataChange) {
+    for (const entry of artifact.connectors) {
+      if (entry.skill.kind === "bundled") {
+        entry.skill.size += 1;
+        entry.skill.archiveSize += 1;
+        entry.skill.fileCount += 1;
+      }
+    }
+  }
   const first =
     entrySlug === undefined
       ? artifact.connectors[0]
@@ -504,6 +514,101 @@ describe("immutable connector catalog real-entry lifecycle", () => {
     );
   });
   it.todo("n1: rejects downloaded bytes whose hash differs from the pointer");
+  it("entry column migrations preserve payloads and backfill bundled and absent skills", async () => {
+    if (!engine) {
+      throw new Error("Missing case engine");
+    }
+    // Historical schema upgrades cannot be constructed through a public API.
+    // Reuse the sole case-owned lifecycle engine, not another database binding.
+    await engine.exec(`ALTER TABLE connector_catalog_entries
+      DROP COLUMN label, DROP COLUMN description, DROP COLUMN category,
+      DROP COLUMN auth_methods, DROP COLUMN firewall, DROP COLUMN storage_name,
+      DROP COLUMN version_id, DROP COLUMN mcp_endpoint`);
+    const versionId = "a".repeat(64);
+    const entries = [
+      {
+        slug: "bundled",
+        label: "Bundled connector",
+        description: "Description",
+        category: "productivity",
+        authMethods: [{ id: "token" }],
+        firewall: { kind: "generated", config: { rules: [] } },
+        skill: {
+          kind: "bundled",
+          storageName: "connector-skill@bundled",
+          versionId,
+          storageVersionPrefix: `__system__/volume/connector-skill@bundled/${versionId}`,
+        },
+      },
+      {
+        slug: "no-skill",
+        label: "No skill connector",
+        description: "Other description",
+        category: "communication",
+        authMethods: [{ id: "oauth" }],
+        firewall: { kind: "none" },
+        skill: { kind: "none" },
+        mcp: {
+          transport: "streamable-http",
+          endpoint: "https://mcp.example.com/mcp",
+        },
+      },
+    ];
+    for (const entry of entries) {
+      await engine.query(
+        "INSERT INTO connector_catalog_entries VALUES ('catalog', $1, $2)",
+        [entry.slug, JSON.stringify(entry)],
+      );
+    }
+    for (const name of [
+      "1328_connector_catalog_entry_columns.sql",
+      "1329_backfill_connector_catalog_entry_columns.sql",
+    ]) {
+      await engine.exec(await readFile(new URL(name, migrationDir), "utf8"));
+    }
+    const expected = entries.map((entry) => {
+      return {
+        hash: "catalog",
+        slug: entry.slug,
+        payload: entry,
+        label: entry.label,
+        description: entry.description,
+        category: entry.category,
+        auth_methods: entry.authMethods,
+        firewall: entry.firewall,
+        storage_name: entry.skill.storageName ?? null,
+        version_id: entry.skill.versionId ?? null,
+        mcp_endpoint: entry.mcp?.endpoint ?? null,
+      };
+    });
+    expect(
+      (
+        await engine.query(
+          "SELECT * FROM connector_catalog_entries ORDER BY slug",
+        )
+      ).rows,
+    ).toStrictEqual(expected);
+    await engine.query(
+      "INSERT INTO connector_catalog_entries (hash, slug, payload) VALUES ('old-api', $1, $2)",
+      [entries[0]?.slug, JSON.stringify(entries[0])],
+    );
+    const backfill = await readFile(
+      new URL(
+        "1329_backfill_connector_catalog_entry_columns.sql",
+        migrationDir,
+      ),
+      "utf8",
+    );
+    await engine.exec(backfill);
+    await engine.exec(backfill);
+    expect(
+      (
+        await engine.query(
+          "SELECT * FROM connector_catalog_entries WHERE hash = 'old-api'",
+        )
+      ).rows,
+    ).toStrictEqual([{ ...expected[0], hash: "old-api" }]);
+  });
   it("n2: binds all existing gateways to the case engine and accepts the publisher-shaped digest through cron", async () => {
     if (!engine || !binding.database) {
       throw new Error("Missing case engine");
@@ -539,6 +644,45 @@ describe("immutable connector catalog real-entry lifecycle", () => {
     expect(
       (await engine.query("SELECT hash FROM connector_catalog")).rows,
     ).toStrictEqual([{ hash: first.hash }]);
+    const expectedColumns = first.artifact.connectors
+      .map((entry) => {
+        return {
+          slug: entry.slug,
+          label: entry.label,
+          description: entry.description,
+          category: entry.category,
+          auth_methods: entry.authMethods,
+          firewall: entry.firewall,
+          storage_name:
+            entry.skill.kind === "bundled" ? entry.skill.storageName : null,
+          version_id:
+            entry.skill.kind === "bundled" ? entry.skill.versionId : null,
+          payload: entry,
+          mcp_endpoint: entry.mcp?.endpoint ?? null,
+        };
+      })
+      .sort((a, b) => {
+        return a.slug.localeCompare(b.slug);
+      });
+    const readColumns = async () => {
+      if (!engine) {
+        throw new Error("Missing case engine");
+      }
+      return (
+        await engine.query(
+          `SELECT slug, label, description, category, auth_methods, firewall,
+                  storage_name, version_id, payload, mcp_endpoint
+           FROM connector_catalog_entries WHERE hash = $1 ORDER BY slug`,
+          [first.hash],
+        )
+      ).rows;
+    };
+    await expect(readColumns()).resolves.toStrictEqual(expectedColumns);
+    // A retry trusts previously published entries instead of rewriting them.
+    await engine.exec("DELETE FROM connector_catalog");
+    expect((await sync()).body).toMatchObject({ outcome: "accepted" });
+    await expect(readColumns()).resolves.toStrictEqual(expectedColumns);
+    await directory(first);
     const next = release("2099-01-01.next", "Next lifecycle catalog");
     serve(next);
     const changed = await sync();
@@ -659,45 +803,77 @@ describe("immutable connector catalog real-entry lifecycle", () => {
       throw new Error("Expected read-only exact skill mount");
     }
     expect(mount.archiveUrl).toStrictEqual(expect.any(String));
-    const conflicting = release(
-      "2099-01-01.conflicting",
-      "Conflicting preparation",
-    );
-    const entry = conflicting.artifact.connectors[0];
-    if (!entry) {
-      throw new Error("Missing conflict fixture");
+    // Already prepared entries are the receipt. This constraint rejects any
+    // attempted reinsertion while allowing existing rows to remain untouched.
+    await engine.exec(`
+      ALTER TABLE connector_catalog_entries ADD CONSTRAINT no_reprepare
+        CHECK (hash <> '${failed.hash}') NOT VALID;
+      DELETE FROM connector_catalog;
+    `);
+    expect((await sync()).body).toMatchObject({ outcome: "accepted" });
+    await directory(failed);
+    expect(
+      (await engine.query("SELECT hash FROM connector_catalog")).rows,
+    ).toStrictEqual([{ hash: failed.hash }]);
+  });
+  it("reuses registered skill metadata without comparing the catalog copy", async () => {
+    if (!engine) {
+      throw new Error("Missing case engine");
     }
+    const first = release("2099-01-02.first", "Original skill metadata");
+    serve(first);
+    expect((await sync()).body).toMatchObject({ outcome: "accepted" });
+    const skill = first.artifact.connectors.flatMap((entry) => {
+      return entry.skill.kind === "bundled" ? [entry.skill] : [];
+    })[0];
+    if (!skill) {
+      throw new Error("Missing bundled skill");
+    }
+    const changed = release(
+      "2099-01-02.changed",
+      "Reused storage metadata",
+      false,
+      undefined,
+      true,
+    );
+    serve(changed);
+    expect((await sync()).body).toMatchObject({ outcome: "accepted" });
+    await directory(changed);
+    const storage = (
+      await engine.query<{ id: string }>(
+        "SELECT id FROM storages WHERE org_id = $1 AND user_id = $2 AND name = $3",
+        [SYSTEM_ORG_ID, VOLUME_ORG_USER_ID, skill.storageName],
+      )
+    ).rows[0];
+    if (!storage) {
+      throw new Error("Missing registered skill storage");
+    }
+    const mounted = createExecutionStorageObjects([
+      {
+        orgId: SYSTEM_ORG_ID,
+        userId: VOLUME_ORG_USER_ID,
+        storageId: storage.id,
+        versionId: skill.versionId,
+        name: skill.storageName,
+        mountPath: "/skills/registered-metadata",
+        mode: "readonly",
+      },
+    ]);
+    const mounts = await createStore().get(mounted.preparedMounts$);
+    expect(mounts).toMatchObject([
+      { versionId: skill.versionId, archiveSize: skill.archiveSize },
+    ]);
+    // The owning engine can construct corruption that no public API permits.
+    // Wrong storage identity must still fail at the registration boundary.
     await engine.query(
-      "INSERT INTO connector_catalog_entries (hash, slug, payload) VALUES ($1, $2, $3)",
-      [
-        conflicting.hash,
-        entry.slug,
-        JSON.stringify({ ...entry, label: "Conflicting stored bytes" }),
-      ],
+      "UPDATE storage_versions SET s3_key = 'wrong-storage-path' WHERE id = $1",
+      [skill.versionId],
     );
-    serve(conflicting);
-    await expect(sync()).rejects.toThrow(
-      "Unknown response status 500 for GET /api/cron/sync-connector-catalog",
-    );
-    await directory(failed);
-    expect(
-      (await engine.query("SELECT hash FROM connector_catalog")).rows,
-    ).toStrictEqual([{ hash: failed.hash }]);
-    await engine.query(
-      "DELETE FROM connector_catalog_entries WHERE hash = $1",
-      [conflicting.hash],
-    );
-    await engine.query(
-      "INSERT INTO connector_catalog_entries (hash, slug, payload) VALUES ($1, 'unexpected-slug', $2)",
-      [conflicting.hash, JSON.stringify(entry)],
-    );
-    await expect(sync()).rejects.toThrow(
-      "Unknown response status 500 for GET /api/cron/sync-connector-catalog",
-    );
-    await directory(failed);
-    expect(
-      (await engine.query("SELECT hash FROM connector_catalog")).rows,
-    ).toStrictEqual([{ hash: failed.hash }]);
+    const wrongIdentity = release("2099-01-02.wrong", "Wrong identity");
+    serve(wrongIdentity);
+    const rejected = await sync();
+    expect(rejected.body).toMatchObject({ outcome: "rejected" });
+    await directory(changed);
   });
   it("n3: real cron competitors share atomic legacy/hash/Pi acceptance and winner-only postcommit wakeups", async () => {
     if (!engine) {

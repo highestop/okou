@@ -1751,6 +1751,20 @@
       "when": 1791281400404,
       "tag": "1327_preserve_subscription_route_effort_defaults",
       "breakpoints": true
+    },
+    {
+      "idx": 1328,
+      "version": "7",
+      "when": 1791299670016,
+      "tag": "1328_connector_catalog_entry_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 1329,
+      "version": "7",
+      "when": 1791299680021,
+      "tag": "1329_backfill_connector_catalog_entry_columns",
+      "breakpoints": true
     }
   ]
 }
