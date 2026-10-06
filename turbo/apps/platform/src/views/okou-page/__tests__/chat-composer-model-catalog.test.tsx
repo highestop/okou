@@ -1,3 +1,4 @@
+import { FeatureSwitchKey } from "@okouai/core/feature-switch-key";
 import type { AvailableRunModel } from "@okouai/api-contracts/contracts/model-providers";
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -71,7 +72,11 @@ test("Offer the active catalog models in catalog order with catalog names", asyn
     "okou-1.0",
   ]);
 
-  await setupPage({ context, path: NEW_CHAT_PATH });
+  await setupPage({
+    context,
+    path: NEW_CHAT_PATH,
+    featureSwitches: { [FeatureSwitchKey.ComposerModelPanel]: false },
+  });
   await readyComposer();
 
   await user.click(await composerModelTrigger("Auto"));
@@ -90,7 +95,11 @@ test("Show the replacement for a thread pinned to a retired model", async () => 
   installRunChat({ selectedModel: "claude-fable-5" });
   configureRunModels(["okou-1.0", "claude-fable-5-1"]);
 
-  await setupPage({ context, path: RUN_PATH });
+  await setupPage({
+    context,
+    path: RUN_PATH,
+    featureSwitches: { [FeatureSwitchKey.ComposerModelPanel]: false },
+  });
   await readyChat();
 
   await expect(composerModelTrigger("Claude Fable 5.1")).resolves.toBeVisible();
@@ -100,7 +109,11 @@ test("Resolve a member preference of a retired model to its replacement", async 
   configureRunModels(["okou-1.0", "gpt-6-luna", "claude-sonnet-5"]);
   preference("deepseek-v4-pro");
 
-  await setupPage({ context, path: NEW_CHAT_PATH });
+  await setupPage({
+    context,
+    path: NEW_CHAT_PATH,
+    featureSwitches: { [FeatureSwitchKey.ComposerModelPanel]: false },
+  });
   await readyComposer();
 
   await expect(composerModelTrigger("GPT 6 Luna")).resolves.toBeVisible();

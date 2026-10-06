@@ -1,3 +1,4 @@
+import { FeatureSwitchKey } from "@okouai/core/feature-switch-key";
 import { codexDeviceAuthContract } from "@okouai/api-contracts/contracts/codex-device-auth";
 import type { AvailableRunModel } from "@okouai/api-contracts/contracts/model-providers";
 import { personalModelProvidersMainContract } from "@okouai/api-contracts/contracts/personal-model-providers";
@@ -75,6 +76,7 @@ test.each([
     await setupPage({
       context,
       path: NEW_CHAT_PATH,
+      featureSwitches: { [FeatureSwitchKey.ComposerModelPanel]: false },
     });
     const trigger = await composerModelTrigger("GPT 5.6 Sol");
     expect(trigger).not.toHaveTextContent("BYOK");
@@ -113,6 +115,7 @@ test("Uses the effective subscription for reasoning and Fast guidance", async ()
   await setupPage({
     context,
     path: NEW_CHAT_PATH,
+    featureSwitches: { [FeatureSwitchKey.ComposerModelPanel]: false },
   });
   await screen.findByRole("textbox", { name: "Message" });
   click(await findButton("Effort, Max"));

@@ -1,3 +1,4 @@
+import { FeatureSwitchKey } from "@okouai/core/feature-switch-key";
 import {
   billingStatusContract,
   type BillingStatusResponse,
@@ -98,6 +99,7 @@ async function setupLoadedModelsSettings() {
   await setupPage({
     context,
     path: NEW_CHAT_PATH,
+    featureSwitches: { [FeatureSwitchKey.ComposerModelPanel]: false },
   });
   await screen.findByRole("textbox", { name: "Message" });
   const menu = await openAccountMenu();

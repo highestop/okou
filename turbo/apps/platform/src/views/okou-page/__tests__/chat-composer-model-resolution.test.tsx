@@ -111,6 +111,7 @@ test("Edit only the model for an existing thread", async () => {
     context,
     path: RUN_PATH,
     featureSwitches: {
+      [FeatureSwitchKey.ComposerModelPanel]: false,
       [FeatureSwitchKey.ChatPreference]: true,
     },
   });
@@ -131,7 +132,11 @@ test("Resolve the model shown for a chat", async () => {
   configureRunModels(["claude-fable-5-1", "claude-opus-5-5"]);
   preference("claude-opus-5-5");
 
-  await setupPage({ context, path: NEW_CHAT_PATH });
+  await setupPage({
+    context,
+    path: NEW_CHAT_PATH,
+    featureSwitches: { [FeatureSwitchKey.ComposerModelPanel]: false },
+  });
 
   await readyComposer();
   await expect(modelPicker("Claude Opus 5.5")).resolves.toBeVisible();
@@ -151,7 +156,11 @@ test("Show Auto when an existing thread's model is no longer selectable", async 
     },
   ]);
 
-  await setupPage({ context, path: RUN_PATH });
+  await setupPage({
+    context,
+    path: RUN_PATH,
+    featureSwitches: { [FeatureSwitchKey.ComposerModelPanel]: false },
+  });
 
   await readyChat();
   await user.click(await modelPicker("Auto"));
@@ -164,7 +173,11 @@ test("Keep an existing thread's explicit model", async () => {
   configureRunModels(["claude-fable-5-1", "claude-opus-5-5", "claude-opus-5"]);
   preference("claude-opus-5-5");
 
-  await setupPage({ context, path: RUN_PATH });
+  await setupPage({
+    context,
+    path: RUN_PATH,
+    featureSwitches: { [FeatureSwitchKey.ComposerModelPanel]: false },
+  });
 
   await readyChat();
   await expect(modelPicker("Claude Opus 5")).resolves.toBeVisible();
@@ -173,7 +186,11 @@ test("Keep an existing thread's explicit model", async () => {
 test("Start a new chat on Auto without a saved preference", async () => {
   configureRunModels(["claude-fable-5-1", "claude-opus-5-5"]);
 
-  await setupPage({ context, path: NEW_CHAT_PATH });
+  await setupPage({
+    context,
+    path: NEW_CHAT_PATH,
+    featureSwitches: { [FeatureSwitchKey.ComposerModelPanel]: false },
+  });
 
   await readyComposer();
   await expect(modelPicker("Auto")).resolves.toBeVisible();
@@ -183,7 +200,11 @@ test("Start a new chat on Auto when the saved preference has no route", async ()
   configureRunModels(["claude-fable-5-1"]);
   preference("claude-opus-5-5");
 
-  await setupPage({ context, path: NEW_CHAT_PATH });
+  await setupPage({
+    context,
+    path: NEW_CHAT_PATH,
+    featureSwitches: { [FeatureSwitchKey.ComposerModelPanel]: false },
+  });
 
   await readyComposer();
   await expect(modelPicker("Auto")).resolves.toBeVisible();
