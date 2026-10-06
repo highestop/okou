@@ -54,26 +54,8 @@ import {
 import type { FeatureSwitchKey } from "@okouai/core/feature-switch-key";
 import type { BootstrapAgent } from "./agent-data.service";
 
-import {
-  createAgentCatalogIdentity,
-  createAgentCatalogProjectionRows,
-  validateConnectorCatalogRuntimeProjectionRows,
-  type CapturedAgentCatalog,
-} from "./connector-catalog-runtime-projection.service";
-import {
-  requestedProjectionConnectorSlugs,
-  materializeProjectedRuntimeSelection,
-  runtimeSelectionFromCatalogView,
-  takeCachedProjectedConnectors,
-  rememberProjectedConnectors,
-  type ConnectorRuntimeSelection,
-} from "./connector-catalog-runtime.service";
-import {
-  decodeAcceptedConnectorCatalogPayload,
-  readCachedConnectorCatalogSnapshot,
-  ExternalConnectorCatalogUnavailableError,
-} from "./connector-catalog-external-reader.service";
-import { connectorCatalogExecutableCapabilityState } from "./connector-catalog-compatibility.service";
+import { createConnectorRuntimeSelection } from "./connector-catalog-entries.service";
+import type { ConnectorRuntimeSelection } from "./connector-catalog-runtime.service";
 import type { CustomConnectorExecutionDefinition } from "./custom-connector-definition-selection";
 import { agentConnectorScopeFromRows } from "./agent-connector-scope.service";
 import { customConnectorPermissionBundleDependencySlug } from "./custom-connector-permission-bundle.service";
@@ -94,10 +76,8 @@ import { createGlobalModelContext } from "./execution-global-model-context.servi
 import type { ConnectorPermissionGrant } from "./execution-connector-permissions.service";
 import type { SelectedAgentWorkflow } from "./execution-agent-workflows.service";
 import { variables } from "@okouai/db/schema/variable";
-import { and, count, eq, isNull, isNotNull, or, sql } from "drizzle-orm";
+import { and, eq, isNull, isNotNull, or, sql } from "drizzle-orm";
 import { QueryBuilder } from "drizzle-orm/pg-core";
-import { connectorCatalogRuntimeProjections } from "@okouai/db/schema/connector-catalog";
-import type { ConnectorCatalogArtifactConnector } from "@okouai/connectors/connector-catalog/artifacts/artifacts";
 import { db$ } from "../external/db";
 import { ORG_SENTINEL_USER_ID } from "./feature-switch-scope";
 import {
@@ -607,15 +587,6 @@ export const preloadAgentRunContext$ = command(
   },
 );
 
-function requiredProjectionCount(
-  row: { readonly value: number } | undefined,
-): number {
-  if (!row) {
-    throw new Error("Connector runtime projection count query returned no row");
-  }
-  return row.value;
-}
-
 function bootstrapConnectorSnapshot(
   userId: string,
   orgId: string,
@@ -738,100 +709,6 @@ export function createEagerConnectorCredentialContext(
     };
   });
   return { credentials$ };
-}
-
-function bootstrapCatalogRequest(selection: AgentConnectorSelection) {
-  const scope = agentConnectorScopeFromRows({
-    connectorRows: selection.builtinConnectorSlugs.map((connectorSlug) => {
-      return { connectorSlug };
-    }),
-    customConnectorRows: selection.customConnectors,
-  });
-  return scope.allowedConnectorSlugs.length === 0 &&
-    scope.allowedCustomConnectorIds.length === 0
-    ? null
-    : {
-        runtimeConnectorSlugs: scope.allowedConnectorSlugs,
-        metadataConnectorSlugs: catalogMetadataSlugs(selection),
-      };
-}
-
-type BootstrapProjection = {
-  readonly projection: Extract<
-    CapturedAgentCatalog["projection"],
-    { kind: "ready" }
-  >["projection"];
-  readonly cached: readonly ConnectorCatalogArtifactConnector[];
-  readonly validated: ReturnType<
-    typeof validateConnectorCatalogRuntimeProjectionRows
-  >;
-  readonly actualCount: number | undefined;
-};
-
-async function bootstrapCatalogSelection(
-  input: {
-    readonly captured: CapturedAgentCatalog;
-    readonly requested: NonNullable<ReturnType<typeof bootstrapCatalogRequest>>;
-  },
-  projected: BootstrapProjection | null,
-): Promise<ConnectorRuntimeSelection> {
-  // Only the fallback consumes its error: valid projected rows can execute even
-  // if the same generation's fallback bytes are malformed.
-  const accepted = await settle(bootstrapAcceptedCatalog(input.captured));
-  if (
-    projected?.validated.kind === "ready" &&
-    (projected.validated.missingConnectorSlugs.length === 0 ||
-      projected.actualCount === projected.projection.identity.connectorCount)
-  ) {
-    rememberProjectedConnectors(
-      projected.projection.identity,
-      projected.validated.connectors,
-    );
-    return materializeProjectedRuntimeSelection({
-      projection: projected.projection,
-      connectors: [...projected.cached, ...projected.validated.connectors],
-      ...input.requested,
-    });
-  }
-  if (!accepted.ok) {
-    throw accepted.error;
-  }
-  return runtimeSelectionFromCatalogView({
-    catalog: accepted.value,
-    ...input.requested,
-  });
-}
-
-async function bootstrapAcceptedCatalog(captured: CapturedAgentCatalog) {
-  if (captured.snapshot) {
-    return captured.snapshot;
-  }
-  if (!captured.identity || !captured.payload) {
-    throw new ExternalConnectorCatalogUnavailableError(
-      "missing_current_identity",
-    );
-  }
-  const identity = captured.identity;
-  const payload = captured.payload;
-  const snapshot = await readCachedConnectorCatalogSnapshot({
-    identity,
-    timing: undefined,
-    load: () => {
-      return Promise.resolve(
-        decodeAcceptedConnectorCatalogPayload({
-          identity,
-          capability: connectorCatalogExecutableCapabilityState(),
-          row: payload,
-        }),
-      );
-    },
-  });
-  if (!snapshot) {
-    throw new ExternalConnectorCatalogUnavailableError(
-      "captured_identity_unavailable",
-    );
-  }
-  return snapshot;
 }
 
 const bootstrapVariablesDecoder = zodDriverValueDecoder(
@@ -1108,62 +985,26 @@ function createConnectorContextGroups(
     ]);
     return bootstrapConnectorSnapshot(userId, orgId, snapshot, definitions);
   });
-  const catalogIdentity$ = createAgentCatalogIdentity();
-  const catalogRequest$ = computed(async (get) => {
-    return bootstrapCatalogRequest(await get(connectorSelection$));
-  });
-  const catalogCapture$ = computed(async (get) => {
-    const requested = await get(catalogRequest$);
-    return requested
-      ? { requested, captured: await get(catalogIdentity$) }
-      : null;
-  });
-  const catalogProjection$ = computed(async (get) => {
-    const input = await get(catalogCapture$);
-    if (!input || input.captured.projection.kind !== "ready") {
+  const requested$ = computed(async (get) => {
+    const selection = await get(connectorSelection$);
+    const scope = agentConnectorScopeFromRows({
+      connectorRows: selection.builtinConnectorSlugs.map((connectorSlug) => {
+        return { connectorSlug };
+      }),
+      customConnectorRows: selection.customConnectors,
+    });
+    if (
+      scope.allowedConnectorSlugs.length === 0 &&
+      scope.allowedCustomConnectorIds.length === 0
+    ) {
       return null;
     }
-    const projection = input.captured.projection.projection;
-    const cached = takeCachedProjectedConnectors(
-      projection.identity,
-      requestedProjectionConnectorSlugs(input.requested),
-    );
-    const rows = await get(
-      createAgentCatalogProjectionRows(
-        projection.identity.projectionSetId,
-        cached.uncachedSlugs,
-      ),
-    );
-    const validated = validateConnectorCatalogRuntimeProjectionRows({
-      rows,
-      connectorSlugs: cached.uncachedSlugs,
-    });
-    const actualCount =
-      validated.kind === "ready" && validated.missingConnectorSlugs.length > 0
-        ? requiredProjectionCount(
-            (
-              await get(db$)
-                .select({ value: count() })
-                .from(connectorCatalogRuntimeProjections)
-                .where(
-                  eq(
-                    connectorCatalogRuntimeProjections.projectionSetId,
-                    projection.identity.projectionSetId,
-                  ),
-                )
-            )[0],
-          )
-        : undefined;
-    return { projection, cached: cached.cached, validated, actualCount };
+    return {
+      runtimeConnectorSlugs: scope.allowedConnectorSlugs,
+      metadataConnectorSlugs: catalogMetadataSlugs(selection),
+    };
   });
-  const catalog$ = computed(
-    async (get): Promise<ConnectorRuntimeSelection | null> => {
-      const input = await get(catalogCapture$);
-      return input
-        ? await bootstrapCatalogSelection(input, await get(catalogProjection$))
-        : null;
-    },
-  );
+  const catalog$ = createConnectorRuntimeSelection(requested$);
   const connectors$ = computed(async (get): Promise<BootstrapConnectorData> => {
     const snapshot = await get(connectorSnapshot$);
     return {
