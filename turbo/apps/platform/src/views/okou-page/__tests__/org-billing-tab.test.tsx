@@ -810,7 +810,8 @@ async function openLegacyConversionEligibility() {
 
 test("Gate legacy conversion eligibility before Pro configuration", async () => {
   const migrationReady = await openLegacyConversionEligibility();
-  expect(screen.getByRole("status")).toBeInTheDocument();
+  const loadingModal = await screen.findByRole("dialog", { name: "Billing" });
+  expect(within(loadingModal).getByRole("status")).toBeInTheDocument();
   expect(
     screen.queryByRole("heading", { name: "Choose a plan" }),
   ).not.toBeInTheDocument();
