@@ -17,6 +17,7 @@ overrides:
   '@slack/web-api>axios': 1.20.0
   ajv>fast-uri: ^3.1.7
   express-rate-limit>ip-address: ^10.5.1
+  express>proxy-addr: 2.0.8
   tar: '>=7.5.21'
   tmp: '>=0.2.6'
   ws: '>=8.21.0'
