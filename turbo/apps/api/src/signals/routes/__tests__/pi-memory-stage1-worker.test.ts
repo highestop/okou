@@ -71,6 +71,24 @@ import {
 } from "../test-pi-memory-stage1-state";
 
 const context = testContext();
+const setupMemoryModelKey = createMemoryModelKeySetup();
+
+function createMemoryModelKeySetup() {
+  const keys = new WeakMap<
+    AbortSignal,
+    ReturnType<typeof seedBuiltInModelKey>
+  >();
+  return async (options: { readonly isolatePg?: boolean } = {}) => {
+    // Initialize once across the case's owned fixtures.
+    const signal = context.signal;
+    let key = keys.get(signal);
+    if (!key) {
+      key = seedBuiltInModelKey(context, "okou-1.0", undefined, options);
+      keys.set(signal, key);
+    }
+    await key;
+  };
+}
 const BUCKET = "test-user-storages";
 const CRON_SECRET = "test-pi-memory-stage1-secret";
 const INPUT_SECRET = "sk-proj-inputsecretabcdefghijklmnopqrstuvwxyz";
@@ -414,6 +432,7 @@ function createStorageFixture(
       { action: "seed" }
     >["source"];
   }): Promise<CandidateFixture> {
+    await setupMemoryModelKey();
     return await owner.run(async () => {
       // Runless background attempts obey the same source plan/credit admission.
       admissionSetup ??= seedOrgMetadata({
@@ -577,21 +596,22 @@ function stage1Client(storages: readonly ScopedStage1Fixture[]) {
   })(cronExtractPiMemoryStage1Contract);
 }
 
-beforeEach(async () => {
+beforeEach(() => {
   mockEnv("PI_MEMORY_BACKGROUND_WORKERS_ENABLED", "true");
   mockEnv("R2_USER_STORAGES_BUCKET_NAME", BUCKET);
   mockEnv("CRON_SECRET", CRON_SECRET);
   context.sessionHistoryBlobs.clear();
   installS3Objects();
-  // Auto and independent memory share the managed OpenRouter key, not chat routes.
-  await seedBuiltInModelKey(context, "okou-1.0");
 });
 
 describe("Pi memory Stage 1 worker", () => {
   // #37440 key33 retains only scoped accounting, redaction and worker fences.
   // Ordinary sources are completed native Pi Runs, selected by the real day producer.
   let publicSourceTime: number;
-  async function createPublicStorageFixture() {
+  async function createPublicStorageFixture(
+    options: { readonly isolatePg?: boolean } = {},
+  ) {
+    await setupMemoryModelKey(options);
     const chat = createChatEventsFixture(context);
     const { actor, agentId, runnerGroup } = await chat.entitledChatActor();
     const orgId = actor.orgId;
@@ -1333,61 +1353,63 @@ describe("Pi memory Stage 1 worker", () => {
     );
   });
 
-  it("bills built-in extraction at the served route's catalog long-context threshold", async () => {
-    const below = await createPublicStorageFixture();
-    const atBoundary = await createPublicStorageFixture();
-    await below.seed({
-      raw: (piSessionId) => {
-        return settledHistory(piSessionId, "total input below the boundary");
-      },
-    });
-    await atBoundary.seed({
-      raw: (piSessionId) => {
-        return settledHistory(piSessionId, "total input at the boundary");
-      },
-    });
-    await below.prepareExecution();
-    await atBoundary.prepareExecution();
-    // The pricing-only operator change belongs to extraction, after the
-    // ordinary native source/trigger Runs have used their normal priced routes.
-    // An operator sets a long-context band on the served OpenRouter route; the
-    // extraction must bill that band from the same catalog it routed with.
-    const restore = await setBuiltInRouteLongContextThresholdFixture({
-      model: "deepseek-v4.1-flash",
-      concreteProviderType: "openrouter-codex",
-      longContextMinTotalInputTokens: 272_001,
-    });
-    onTestFinished(restore);
-    installProvider(({ request }) => {
-      const boundary = JSON.stringify(request).includes("at the boundary");
-      return {
-        text: defaultProviderOutput(),
-        usage: {
-          input_tokens: boundary ? 272_001 : 272_000,
-          output_tokens: 8,
-          cached_tokens: 1,
-          cache_write_tokens: 1,
+  it.each([
+    {
+      inputTokens: 272_000,
+      expectedCategories: [
+        "tokens.cache_creation",
+        "tokens.cache_read",
+        "tokens.input",
+        "tokens.output",
+      ],
+    },
+    {
+      inputTokens: 272_001,
+      expectedCategories: [
+        "tokens.cache_creation.long_context",
+        "tokens.cache_read.long_context",
+        "tokens.input.long_context",
+        "tokens.output.long_context",
+      ],
+    },
+  ])(
+    "bills built-in extraction at the served route's catalog long-context threshold with $inputTokens input tokens",
+    async ({ inputTokens, expectedCategories }) => {
+      const storage = await createPublicStorageFixture({ isolatePg: true });
+      await storage.seed({
+        raw: (piSessionId) => {
+          return settledHistory(piSessionId, "input at the pricing boundary");
         },
-      };
-    });
+      });
+      await storage.prepareExecution();
+      // The pricing-only operator change belongs to extraction, after the
+      // ordinary native source/trigger Runs have used their normal priced routes.
+      // An operator sets a long-context band on the served OpenRouter route; the
+      // extraction must bill that band from the same catalog it routed with.
+      const restore = await setBuiltInRouteLongContextThresholdFixture({
+        model: "deepseek-v4.1-flash",
+        concreteProviderType: "openrouter-codex",
+        longContextMinTotalInputTokens: 272_001,
+      });
+      onTestFinished(restore);
+      installProvider(() => {
+        return {
+          text: defaultProviderOutput(),
+          usage: {
+            input_tokens: inputTokens,
+            output_tokens: 8,
+            cached_tokens: 1,
+            cache_write_tokens: 1,
+          },
+        };
+      });
 
-    await expect(runScoped(below)).resolves.toMatchObject({ succeeded: 1 });
-    await expect(runScoped(atBoundary)).resolves.toMatchObject({
-      succeeded: 1,
-    });
-    await expect(inspectUsageCategories(below)).resolves.toStrictEqual([
-      "tokens.cache_creation",
-      "tokens.cache_read",
-      "tokens.input",
-      "tokens.output",
-    ]);
-    await expect(inspectUsageCategories(atBoundary)).resolves.toStrictEqual([
-      "tokens.cache_creation.long_context",
-      "tokens.cache_read.long_context",
-      "tokens.input.long_context",
-      "tokens.output.long_context",
-    ]);
-  });
+      await expect(runScoped(storage)).resolves.toMatchObject({ succeeded: 1 });
+      await expect(inspectUsageCategories(storage)).resolves.toStrictEqual(
+        expectedCategories,
+      );
+    },
+  );
 
   it("isolates invalid sources permanently before the provider", async () => {
     const storages: Awaited<ReturnType<typeof createPublicStorageFixture>>[] =

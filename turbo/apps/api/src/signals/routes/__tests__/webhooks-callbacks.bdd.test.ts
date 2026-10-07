@@ -64,7 +64,7 @@ import {
   seedCustomThreadConnectorSelection,
 } from "./helpers/connector-credential-storage-state";
 
-const context = testContext({});
+const context = testContext();
 const TERMINAL_RUN_STATUSES = [
   "completed",
   "failed",

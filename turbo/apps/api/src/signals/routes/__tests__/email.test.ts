@@ -112,7 +112,7 @@ beforeEach(() => {
 
 describe("retired Native Morning Brief email", () => {
   it("rejects a historical Native intent and clears its body without contacting the provider", async () => {
-    const outbox = createEmailOutboxStateApi(context);
+    const outbox = createEmailOutboxStateApi(context, { isolatePg: true });
     const item = await outbox.seedItem({
       template: "morning-brief-result",
       toAddress: `recipient-${randomUUID()}@example.test`,
@@ -139,7 +139,7 @@ describe("retired Native Morning Brief email", () => {
     expect(resendMocks.send).not.toHaveBeenCalled();
   });
   it("stops a committed historical Native provider request without replaying or replacing its key", async () => {
-    const outbox = createEmailOutboxStateApi(context);
+    const outbox = createEmailOutboxStateApi(context, { isolatePg: true });
     const to = `recipient-${randomUUID()}@example.test`;
     const key = `historical-native-${randomUUID()}`;
     const item = await outbox.seedItem({
@@ -183,10 +183,7 @@ describe("retired Native Morning Brief email", () => {
   it("purges globally retired Native intents during Agent deletion and preserves ordinary queued mail", async () => {
     const actor = bdd.user();
     bdd.acceptAgentStorageWrites();
-    const agent = await bdd.createAgent(actor, {
-      displayName: "Native mail retirement",
-    });
-    const outbox = createEmailOutboxStateApi(context);
+    const outbox = createEmailOutboxStateApi(context, { isolatePg: true });
     const native = await outbox.seedItem({
       template: "morning-brief-result",
       toAddress: `native-${randomUUID()}@example.test`,
@@ -202,6 +199,9 @@ describe("retired Native Morning Brief email", () => {
     });
     onTestFinished(async () => {
       await outbox.deleteItems([native.id, ordinary.id]);
+    });
+    const agent = await bdd.createAgent(actor, {
+      displayName: "Native mail retirement",
     });
     await bdd.deleteAgent(actor, agent.agentId);
     await expect(outbox.readItem(native.id)).resolves.toBeNull();
