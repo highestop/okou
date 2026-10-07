@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { authHeadersSchema, initContract } from "./base";
-import { connectorCatalogDiagnosticsSchema } from "./connector-catalog-diagnostics";
+import {
+  connectorCatalogDiagnosticsSchema,
+  connectorCatalogSyncAttemptReportSchema,
+} from "./connector-catalog-diagnostics";
 import { apiErrorSchema } from "./errors";
 import {
   officialWorkflowCatalogSyncResponseSchema,
@@ -230,10 +233,12 @@ const cronSyncSkillsResponseSchema = z.object({
   total: z.number(),
 });
 
+// Pointer-derived diagnostics plus the writer's own report of this attempt,
+// whose `state` and `active` take precedence over the diagnostic fields.
 const connectorCatalogSyncResponseSchema =
-  connectorCatalogDiagnosticsSchema.extend({
-    outcome: z.enum(["accepted", "unchanged", "rejected"]),
-  });
+  connectorCatalogDiagnosticsSchema.extend(
+    connectorCatalogSyncAttemptReportSchema.shape,
+  );
 
 export type ConnectorCatalogSyncResponse = z.infer<
   typeof connectorCatalogSyncResponseSchema
@@ -612,8 +617,9 @@ export const cronConnectorCatalogContract = c.router({
       404: apiErrorSchema,
       500: apiErrorSchema,
     },
+    // Historical path retained for the CI preview workflow.
     summary:
-      "Seed the official catalog's onboarding projection in preview only",
+      "Initialize the complete official connector catalog in preview only",
   },
   sync: {
     method: "GET",

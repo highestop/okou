@@ -31,6 +31,7 @@ import { mcpConnectorsContract } from "@okouai/api-contracts/contracts/mcp-conne
 import { signSandboxJwtForTests } from "../../auth/tokens";
 import { mcpConnectorsRoutes } from "../mcp-connectors";
 import { immutableConnectorRuntimeSelection } from "../../services/connector-catalog-entries.service";
+import { RequiredConnectorCatalogEntriesMissingError } from "../../services/connector-catalog-external-reader.service";
 import {
   builtinConnectorsSearchContract,
   builtinConnectorManualGrantContract,
@@ -42,6 +43,10 @@ import {
   onboardingWorkflowConnectorsContract,
 } from "@okouai/api-contracts/contracts/onboarding";
 import { connectorCatalogRoutes } from "../connector-catalog";
+import { featureSwitchesContract } from "@okouai/api-contracts/contracts/feature-switches";
+import { FeatureSwitchKey } from "@okouai/core/feature-switch-key";
+import { getConnectorAuthProviderRegistrationCapabilities } from "@okouai/connectors/auth-providers";
+import { featureSwitchesRoutes } from "../feature-switches";
 import { connectorOverviewRoutes } from "../connector-overview";
 import { onboardingSourcesRoutes } from "../onboarding-sources";
 import { onboardingWorkflowConnectorsRoutes } from "../onboarding-workflow-connectors";
@@ -79,7 +84,7 @@ import { API_TEST_CONNECTOR_CATALOG_ARTIFACT } from "../../../test-fixtures/conn
 import { getApiTestMocks, resetApiTestMocks } from "../../../__tests__/mocks";
 import { setupApp } from "../../../__tests__/test-helpers";
 import { accept, testContext } from "../../../__tests__/test-context";
-import { clearMockedEnv, mockEnv } from "../../../lib/env";
+import { clearMockedEnv, mockEnv, mockOptionalEnv } from "../../../lib/env";
 import { now } from "../../../lib/time";
 import { cronConnectorCatalogRoutes } from "../cron-connector-catalog";
 import { flushWaitUntilForTest, waitUntil } from "../../context/wait-until";
@@ -750,7 +755,9 @@ describe("immutable connector catalog real-entry lifecycle", () => {
           [failed.hash],
         )
       ).rows,
-    ).toStrictEqual([{ count: 1 }]);
+      // Entries are written in bounded multi-row batches; the failing batch
+      // (this whole small catalog) publishes no entry.
+    ).toStrictEqual([{ count: 0 }]);
     await engine.exec(
       "ALTER TABLE connector_catalog_entries DROP CONSTRAINT preparation_failure",
     );
@@ -1123,6 +1130,7 @@ describe("immutable connector catalog real-entry lifecycle", () => {
     const captured = await createStore().get(
       immutableConnectorRuntimeSelection({
         requestedConnectorSlugs: [slug],
+        missingEntries: "reject",
       }),
     );
     expect(statements).toHaveLength(1);
@@ -1138,6 +1146,7 @@ describe("immutable connector catalog real-entry lifecycle", () => {
     const retained = await createStore().get(
       immutableConnectorRuntimeSelection({
         requestedConnectorSlugs: [slug],
+        missingEntries: "reject",
         capturedCatalog: captured.capturedCatalog,
       }),
     );
@@ -1147,6 +1156,25 @@ describe("immutable connector catalog real-entry lifecycle", () => {
     expect(retained.catalogIdentity.hash).toBe(first.hash);
     expect(statements).toHaveLength(1);
     expect(statements[0]).not.toContain('from "connector_catalog"');
+    // Without a manifest a missing entry is indistinguishable from an unknown
+    // slug: required reads reject it, optional reads omit it.
+    await expect(
+      createStore().get(
+        immutableConnectorRuntimeSelection({
+          requestedConnectorSlugs: [slug, "missing-required-entry"],
+          missingEntries: "reject",
+          capturedCatalog: captured.capturedCatalog,
+        }),
+      ),
+    ).rejects.toThrow(RequiredConnectorCatalogEntriesMissingError);
+    const omitted = await createStore().get(
+      immutableConnectorRuntimeSelection({
+        requestedConnectorSlugs: [slug, "missing-required-entry"],
+        missingEntries: "omit",
+        capturedCatalog: captured.capturedCatalog,
+      }),
+    );
+    expect([...omitted.connectors.keys()]).toStrictEqual([slug]);
     serve(first);
     expect((await sync()).body).toMatchObject({ outcome: "accepted" });
     expect((await mcpDirectory(actor)).body).toMatchObject({
@@ -1157,6 +1185,7 @@ describe("immutable connector catalog real-entry lifecycle", () => {
     const metadata = await createStore().get(
       immutableConnectorRuntimeSelection({
         requestedConnectorSlugs: [],
+        missingEntries: "reject",
         metadataConnectorSlugs: [slug],
       }),
     );
@@ -1167,12 +1196,14 @@ describe("immutable connector catalog real-entry lifecycle", () => {
     const configured = await createStore().get(
       immutableConnectorRuntimeSelection({
         requestedConnectorSlugs: ["github"],
+        missingEntries: "reject",
       }),
     );
     clearMockedEnv();
     const unconfigured = await createStore().get(
       immutableConnectorRuntimeSelection({
         requestedConnectorSlugs: ["github"],
+        missingEntries: "reject",
       }),
     );
     expect(unconfigured.catalogIdentity.hash).toBe(
@@ -1185,7 +1216,7 @@ describe("immutable connector catalog real-entry lifecycle", () => {
       configured.connectors.get("github")?.methods.size ?? 0,
     );
   });
-  it("n5: real MCP consumer treats absent entries as unknown and rejects a missing pointer", async () => {
+  it("n5: real MCP consumer rejects a missing admitted entry, ignores unadmitted slugs and rejects a missing pointer", async () => {
     if (!engine) {
       throw new Error("Missing case engine");
     }
@@ -1206,6 +1237,7 @@ describe("immutable connector catalog real-entry lifecycle", () => {
     const empty = await createStore().get(
       immutableConnectorRuntimeSelection({
         requestedConnectorSlugs: [],
+        missingEntries: "reject",
       }),
     );
     expect(empty.catalogIdentity.hash).toBe(candidate.hash);
@@ -1216,16 +1248,18 @@ describe("immutable connector catalog real-entry lifecycle", () => {
       "DELETE FROM connector_catalog_entries WHERE hash = $1 AND slug = $2",
       [candidate.hash, slug],
     );
-    expect((await mcpDirectory(actor)).body).toStrictEqual({ connectors: [] });
+    // The admitted account's entry is required: no silent empty directory.
+    expect((await mcpDirectory(actor)).status).toBe(500);
     expect((await mcpDirectory(unknownActor)).body).toStrictEqual({
       connectors: [],
     });
     await engine.exec("DELETE FROM connector_catalog");
-    expect((await mcpDirectory(unknownActor)).status).toBe(500);
+    expect((await mcpDirectory(actor)).status).toBe(500);
     await expect(
       createStore().get(
         immutableConnectorRuntimeSelection({
           requestedConnectorSlugs: [],
+          missingEntries: "reject",
         }),
       ),
     ).rejects.toThrow("Immutable connector catalog current is missing");
@@ -1233,7 +1267,8 @@ describe("immutable connector catalog real-entry lifecycle", () => {
     const catalogReads = statements.filter((query) => {
       return query.includes("connector_catalog");
     });
-    expect(catalogReads).toHaveLength(4);
+    // An unadmitted slug has no matching account row and reads no catalog.
+    expect(catalogReads).toHaveLength(3);
     for (const query of catalogReads) {
       expect(query).not.toContain("connector_catalog_active_snapshot");
       expect(query).not.toContain("connector_catalog_compatibility_evaluation");
@@ -1323,19 +1358,6 @@ describe("slug-first current catalog business readers", () => {
     expect(listed.body.connectors).toContainEqual(
       expect.objectContaining({ slug: "github" }),
     );
-    // Category labels come from the pointer row that owns the listed hash.
-    const listedCategories = new Set(
-      listed.body.connectors.map((connector) => {
-        return connector.category;
-      }),
-    );
-    expect(
-      new Set(
-        listed.body.categoryMetadata?.categories.map((category) => {
-          return category.id;
-        }),
-      ),
-    ).toStrictEqual(listedCategories);
     await directory(candidate);
     const oneClick = await accept(catalogClient().oneClick({ headers }), [200]);
     expect(oneClick.body.connectors.length).toBeGreaterThan(0);
@@ -1591,6 +1613,204 @@ describe("slug-first current catalog business readers", () => {
 });
 
 // Account generation cases now publish only in their own lifecycle engine.
+// Staff diagnostics derive everything from the pointer and its entries, so a
+// case-owned engine can remove or corrupt every legacy store underneath them.
+describe("staff connector catalog diagnostics from current entries", () => {
+  const headers = { authorization: "Bearer clerk-session" };
+  const legacyTables = [
+    "connector_catalog_sync_state",
+    "connector_catalog_active_snapshot",
+    "connector_catalog_compatibility_evaluation",
+    "connector_catalog_runtime_projection",
+  ];
+  // Pointer columns slated for removal; only schema_version and hash remain.
+  const retiredPointerColumns = [
+    "catalog_version",
+    "activated_at",
+    "catalog_header",
+    "entry_slugs",
+  ];
+
+  async function staffSession() {
+    routeMocks.clerk.session(`user_${randomUUID()}`, `org_${randomUUID()}`);
+    await accept(
+      setupApp({ context, routes: featureSwitchesRoutes })(
+        featureSwitchesContract,
+      ).update({
+        headers,
+        body: { switches: { [FeatureSwitchKey.OkouDebug]: true } },
+      }),
+      [200],
+    );
+  }
+
+  async function diagnostics() {
+    statements = [];
+    const response = await accept(
+      setupApp({ context, routes: connectorCatalogRoutes })(
+        connectorCatalogContract,
+      ).diagnostics({ headers }),
+      [200],
+    );
+    for (const query of statements) {
+      for (const table of legacyTables) {
+        expect(query).not.toContain(table);
+      }
+      if (/\bfrom "connector_catalog"/u.test(query)) {
+        for (const column of retiredPointerColumns) {
+          expect(query).not.toContain(column);
+        }
+      }
+    }
+    return response.body;
+  }
+
+  it("reports the pointer and on-demand compatibility without legacy rows", async () => {
+    if (!engine) {
+      throw new Error("Missing case engine");
+    }
+    const candidate = release(`2099-03-01.${randomUUID()}`, "Diagnostics");
+    serve(candidate);
+    expect((await sync()).body).toMatchObject({ outcome: "accepted" });
+    await engine.exec(
+      "DELETE FROM connector_catalog_compatibility_evaluation; DELETE FROM connector_catalog_active_snapshot; DELETE FROM connector_catalog_sync_state",
+    );
+    await staffSession();
+    context.mocks.s3.send.mockClear();
+
+    const requestedAt = now();
+    const current = await diagnostics();
+    expect(
+      Date.parse(current.filtering.evaluatedAt ?? ""),
+    ).toBeGreaterThanOrEqual(requestedAt);
+    expect(current).toMatchObject({
+      schemaVersion: 4,
+      state: "current",
+      active: { catalogVersion: candidate.hash, catalogDigest: candidate.hash },
+      pointer: {
+        schemaVersion: 4,
+        hash: candidate.hash,
+        entryCount: candidate.artifact.connectors.length,
+      },
+      filtering: {
+        capabilityDigest: connectorCatalogExecutableCapabilityDigest(),
+        stale: false,
+      },
+    });
+    expect(current).not.toHaveProperty("lastAttempt");
+    expect(current).not.toHaveProperty("lastSuccessAt");
+    expect(current).not.toHaveProperty("rejectedCandidate");
+    expect(current.active).not.toHaveProperty("activatedAt");
+
+    // Unconfigure one provider used by the published entries: the next
+    // request filters that method against the new capability, with no sync.
+    const entryMethods = new Set(
+      candidate.artifact.connectors.flatMap((entry) => {
+        return entry.authMethods.map((method) => {
+          return `${entry.slug}\0${method.id}`;
+        });
+      }),
+    );
+    const registration =
+      getConnectorAuthProviderRegistrationCapabilities().find((capability) => {
+        return (
+          capability.requiredConfigurationNames.length > 0 &&
+          entryMethods.has(
+            `${capability.connectorSlug}\0${capability.authMethodId}`,
+          )
+        );
+      });
+    const configurationName = registration?.requiredConfigurationNames[0];
+    if (!registration || !configurationName) {
+      throw new Error("Missing configurable catalog auth method");
+    }
+    const filteredMethod = {
+      connectorSlug: registration.connectorSlug,
+      authMethodId: registration.authMethodId,
+      reasons: ["missing-platform-configuration"],
+    };
+    expect(current.filtering.filteredAuthMethods).not.toContainEqual(
+      filteredMethod,
+    );
+    mockOptionalEnv(configurationName, undefined);
+    const unconfigured = await diagnostics();
+    expect(unconfigured.filtering.capabilityDigest).toBe(
+      connectorCatalogExecutableCapabilityDigest(),
+    );
+    expect(unconfigured.filtering.capabilityDigest).not.toBe(
+      current.filtering.capabilityDigest,
+    );
+    expect(unconfigured.filtering.stale).toBeFalsy();
+    expect(unconfigured.filtering.filteredAuthMethods).toContainEqual(
+      filteredMethod,
+    );
+    expect(unconfigured.pointer).toStrictEqual(current.pointer);
+    expect(context.mocks.s3.send).not.toHaveBeenCalled();
+  });
+
+  it("ignores corrupt legacy rows and flags a generation without entries", async () => {
+    if (!engine) {
+      throw new Error("Missing case engine");
+    }
+    const candidate = release(`2099-03-02.${randomUUID()}`, "Diagnostics");
+    serve(candidate);
+    const accepted = await accept(sync(), [200]);
+    expect(accepted.body).toMatchObject({ outcome: "accepted" });
+    await engine.query(
+      "UPDATE connector_catalog_active_snapshot SET catalog_gzip = $1, catalog_digest = $2",
+      [Buffer.from("invalid gzip"), `sha256:${"0".repeat(64)}`],
+    );
+    // Legacy sync state now claims a rejected attempt the pointer never saw.
+    await engine.exec(
+      "DELETE FROM connector_catalog_compatibility_evaluation; UPDATE connector_catalog_sync_state SET last_attempt_outcome = 'rejected', last_failure_code = 'invalid-artifact', last_success_at = NULL",
+    );
+    await staffSession();
+
+    const current = await diagnostics();
+    expect(current).toMatchObject({
+      state: "current",
+      active: { catalogVersion: candidate.hash, catalogDigest: candidate.hash },
+      pointer: {
+        hash: candidate.hash,
+        entryCount: candidate.artifact.connectors.length,
+      },
+      filtering: { stale: false },
+    });
+    expect(current.filtering.filteredAuthMethods).toStrictEqual(
+      accepted.body.filtering.filteredAuthMethods,
+    );
+
+    // A pointer whose hash has no retained entries cannot serve.
+    const emptyHash = `sha256:${"e".repeat(64)}`;
+    await engine.query("UPDATE connector_catalog SET hash = $1", [emptyHash]);
+    await expect(diagnostics()).resolves.toMatchObject({
+      state: "current",
+      active: { catalogVersion: emptyHash, catalogDigest: emptyHash },
+      pointer: { schemaVersion: 4, hash: emptyHash, entryCount: 0 },
+      filtering: {
+        capabilityDigest: connectorCatalogExecutableCapabilityDigest(),
+        evaluatedAt: null,
+        stale: true,
+        filteredAuthMethods: [],
+      },
+    });
+
+    await engine.exec("DELETE FROM connector_catalog");
+    await expect(diagnostics()).resolves.toMatchObject({
+      schemaVersion: 4,
+      state: "never-synced",
+      active: null,
+      pointer: null,
+      filtering: {
+        capabilityDigest: connectorCatalogExecutableCapabilityDigest(),
+        evaluatedAt: null,
+        stale: true,
+        filteredAuthMethods: [],
+      },
+    });
+  });
+});
+
 describe("current-publication account readers", () => {
   const mocks = routeMocks;
   const routes = Object.freeze([

@@ -44,7 +44,6 @@ import { sshCredentialsContract } from "@okouai/api-contracts/contracts/ssh-cred
 import { cloudflareAccessContract } from "@okouai/api-contracts/contracts/cloudflare-access";
 import { mockApi } from "../msw-contract.ts";
 import {
-  testConnectorCatalogCategoryMetadata,
   testConnectorCatalogDefinitions,
   testConnectorPermissionDetails,
   type TestConnectorCatalogDefinition,
@@ -488,10 +487,7 @@ export const apiConnectorsHandlers = [
 
   mockApi(connectorCatalogContract.status, ({ respond }) => {
     const connectors = mockConnectorCatalogStatus();
-    return respond(200, {
-      connectors,
-      categoryMetadata: testConnectorCatalogCategoryMetadata,
-    });
+    return respond(200, { connectors });
   }),
 
   mockApi(connectorCatalogContract.oneClick, ({ respond }) => {
@@ -534,7 +530,6 @@ export const apiConnectorsHandlers = [
       : allConnectors.slice(0, 100);
     return respond(200, {
       connectors,
-      categoryMetadata: testConnectorCatalogCategoryMetadata,
       totalConnectorCount: allConnectors.length,
     });
   }),
@@ -546,24 +541,15 @@ export const apiConnectorsHandlers = [
   mockApi(connectorCatalogContract.diagnostics, ({ respond }) => {
     return respond(200, {
       schemaVersion: 4,
-      state: "stale",
+      state: "current",
       active: {
-        catalogVersion: "2026-07-25.1",
+        catalogVersion: `sha256:${"a".repeat(64)}`,
         catalogDigest: `sha256:${"a".repeat(64)}`,
-        activatedAt: "2026-07-25T01:00:00.000Z",
       },
-      lastAttempt: {
-        at: "2026-07-25T02:00:00.000Z",
-        outcome: "rejected",
-        failureCode: "invalid-artifact",
-        reusedCachedRejection: true,
-      },
-      lastSuccessAt: "2026-07-25T02:00:00.000Z",
-      rejectedCandidate: {
-        catalogVersion: "2026-07-25.2",
-        catalogDigest: `sha256:${"c".repeat(64)}`,
-        failureCode: "invalid-artifact",
-        backendVersion: "1.319.0",
+      pointer: {
+        schemaVersion: 4,
+        hash: `sha256:${"a".repeat(64)}`,
+        entryCount: 2,
       },
       filtering: {
         capabilityDigest: `sha256:${"b".repeat(64)}`,

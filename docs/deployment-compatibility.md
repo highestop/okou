@@ -93,8 +93,8 @@ No production migration, deployment or storage write is executed by this PR.
 
 ## Connector catalog business readers on pointer and immutable entries
 
-This is the first, reader-focused PR of Release 1, not the completed Release 1
-or its destructive Release 2. Business/runtime reads (Run capture, Pi
+Release 1 moves catalog consumers off legacy storage. It is not the
+destructive Release 2. Business/runtime reads (Run capture, Pi
 recapture, public lists/search/discovery/connect surfaces, account refresh,
 Runner firewall catalog, DCR current-identity checks, and permission-baseline
 refresh) use `connector_catalog(schema_version, hash)` and
@@ -105,14 +105,39 @@ hash, in slug order; switching the pointer cannot strand that capture. Selected
 reads capture pointer and entries in one statement. Compatibility is calculated
 from the captured entries and current code/configuration capability, with the
 existing hash/capability-keyed process cache retained for full-catalog reads.
-Missing slugs remain absent and the owning business contract decides whether to
-return not-found or reject a required connector. A missing pointer or an empty
+Without a manifest, a missing entry and a slug the generation never had are
+indistinguishable, so every per-slug or selected-entry reader declares whether
+its slugs are required. Required slugs are already-authorized business facts
+and fail explicitly with the typed
+`CONNECTOR_CATALOG_UNAVAILABLE:missing_required_entries` error instead of
+shrinking scope: a Run's enabled connectors at capture reject the input with a
+launch `conflict`; Pi stable-context recapture leaves the head missing; the
+Run MCP connector list fails the request; and Runner runtime sync reports a
+missing registered builtin target as `unresolved` (Runner keeps last-known-good
+and retries) rather than authoritative `absent`. Optional reads (search,
+discovery, connect items, connected briefs, single-item status/permission and
+account GETs, stored-connection lists, display filters, and metadata-only
+custom permission-bundle dependencies) still omit the slug or return
+not-found. This contract does not probe all slugs or restore a manifest, and a
+missing slug in one reader is never a global catalog failure. Old Runners
+already treat `unresolved` as retain-and-retry, so no Runner protocol change
+is required. A missing pointer or an empty
 whole-catalog generation fails unavailable; there is no legacy or R2 read
-fallback. Public list, discovery and status responses still return category
-metadata, read from `connector_catalog.catalog_header` in the same row read
-that captures the hash, because App clients use it for category labels,
-grouping and filters. That header dependency must be retired through an App
-migration before any Release 2 contraction of `catalog_header`. The
+fallback. The pointer read selects only `schema_version` and `hash`; no
+business reader reads `connector_catalog.catalog_header`, which writers still
+populate until Release 2. Public list, discovery and status responses no longer
+return `categoryMetadata`; connectors carry only their `category` id, and
+discovery keeps `categoryConnectorCounts`. The App ships in the same change:
+it derives categories only from connector `category` ids (existing localized
+copy for known ids, id-derived names otherwise, ordered by name, ungrouped) and
+no longer reads `categoryMetadata`. App and API deploy independently, in either
+order. A new App with an old API ignores the field it still returns. An App
+bundle loaded before this change, talking to a new API, receives no category
+metadata: it shows id-derived names, loses category grouping and the
+Connectors-page category filter, and the chat directory uses id-derived
+names, until the page reloads. Browsing, search, connect and runs are unaffected. That
+degradation is accepted; the API does not keep a `catalog_header` read for old
+bundles. The
 Runner firewall projection's own digest uses canonical JSON object-key order,
 so loading the same content from JSONB cannot change its identity. The opaque
 digest/version can change once relative to the old noncanonical projection;
@@ -123,14 +148,14 @@ There is no schema migration or stored-data rewrite. The writer still validates
 and completely prepares entries before publishing the pointer, and atomically
 maintains the legacy snapshot, compatibility rows and pointer metadata. The
 legacy synchronization CAS/rejection state and compatibility reconciler are
-unchanged. Staff diagnostics still read those legacy stores and must migrate in
-a subsequent Release 1 PR before any Release 2 DROP or writer contraction.
+unchanged. Staff diagnostics move off the legacy stores in the same change
+(below).
 
 New API/existing DB requires the pointer and entries to have been materialized
 by the existing synchronizer; a legacy gzip row alone is not readiness. Old
 API/new DB remains supported because no table or field is removed and all
 compatibility writes remain. No production activation, backfill, release or
-migration is executed by this source PR.
+migration is executed by this change.
 
 The persisted permission baseline and stored Pi execution-context schemas are
 unchanged. New baseline identity retains the v1 wire fields: `catalogDigest`
@@ -147,6 +172,71 @@ route coverage claims old v1 baseline contexts for both Claude Code and Pi,
 including their original publication version, after removing legacy serving
 rows from the case-owned database. Production performance and deployed
 old/new-instance acceptance remain separate verification boundaries.
+
+### Connector catalog staff diagnostics on pointer and immutable entries
+
+Staff diagnostics (`GET /api/connector-catalog/diagnostics`, OkouDebug only)
+no longer read `connector_catalog_sync_state`,
+`connector_catalog_active_snapshot`,
+`connector_catalog_compatibility_evaluation` or the runtime projection tables.
+Each request reads `connector_catalog(schema_version, hash)` and the
+`connector_catalog_entries` at that hash (only the slug, auth methods and MCP
+presence that compatibility evaluates), then calls
+`evaluateConnectorCatalogCompatibility` against the current executable
+capability. Diagnostics do not read `catalog_version`, `activated_at`,
+`catalog_header` or `entry_slugs`, so they survive the removal of those
+columns, and there is no manifest comparison. Nothing new is persisted or
+cached.
+
+Response fields:
+
+- `pointer` (new): `{ schemaVersion, hash, entryCount }`, or `null`
+  without a pointer. `entryCount: 0` is an unavailable generation: the API
+  logs a warning and reports `filtering` with `stale: true` and
+  `evaluatedAt: null`.
+- `active`: `{ catalogVersion, catalogDigest }`, both carrying the hash.
+  `catalogVersion` is a legacy alias, as in the baseline identity above.
+  `activatedAt` is omitted.
+- `state`: `never-synced` without a pointer, `current` otherwise. `stale`
+  stays in the enum for older API responses but is no longer emitted.
+- `filtering`: evaluated per request. `evaluatedAt` is the request time.
+- `lastAttempt`, `lastSuccessAt` and `rejectedCandidate` are removed. Only the
+  writer's sync state records them, so the API omits them instead of
+  reporting nulls that would look like "never attempted".
+
+Rolling deploy: the old Platform debug panel already null-guards every
+removed field (`lastAttempt ?`, `active?.activatedAt ?? null`,
+`formatTimestamp(lastSuccessAt)` on a falsy value, `rejectedCandidate ?`), so
+it renders them as "None" against a new API. The panel is behind the
+staff-only OkouDebug switch, so the new panel adds no handling for older API
+responses: the contract requires `pointer`, and a new panel served by an old
+API shows its fields as "None" until that API is replaced. No CLI command reads
+this endpoint.
+
+The cron sync response (`/api/cron/sync-connector-catalog`) carries the same
+`pointer`, `filtering` and `credentialStorage`, plus the writer's report of
+the attempt it just made: `outcome`, `state` (`stale` after a rejected
+candidate while an older catalog keeps serving), `active` (publication label
+and activation time), `lastAttempt`, `lastSuccessAt` and `rejectedCandidate`.
+`syncConnectorCatalog$` returns that report from its own sync state, and it
+goes away with that state in Release 2. The release workflow's best-effort
+readiness check (`state`, `active`, `filtering.stale`) keeps the same meaning.
+With an empty generation, it now warns.
+
+The remaining legacy reads in API source are all internal to the writer. They
+stay until the Release 2 contraction because old API instances still depend
+on the writes they guard:
+
+- `connector-catalog-sync.service.ts` `readSyncState` (sync state joined with
+  the active snapshot) provides the sync attempt's CAS baseline, observed
+  pointer and rejection cache, and the attempt report described above.
+- `connector-catalog-compatibility.service.ts` `reconcileCompatibility` takes
+  locking reads (`lockSyncState`, `activeSnapshotForUpdate` and the existing
+  evaluation's validation authority) before it rewrites compatibility rows.
+- `preview-connector-catalog.service.ts` only writes and deletes the preview
+  source's legacy rows, in the same transaction as the pointer; it reads none.
+
+There are no schema, data or writer behavior changes.
 
 ## Organization OpenRouter preset override
 
@@ -226,39 +316,50 @@ using `@preset/okou-1-0`. Actual pricing/credits, historical usage, image
 generation and connectors retain their existing storage. See
 [current model APIs](model-catalog.md).
 
-## Bounded official connector catalog initialization in CI preview
+## Complete official connector catalog initialization in CI preview
 
-`deploy-api` opts into `db:dev-seed --preview-onboarding-catalog` for the
-Neon test project's `preview/*` branch. It downloads and validates the same
-official R2 publication, but materializes only the union of the onboarding
-source/workflow contracts and the seven existing Runner E2E connectors. The
-current union is 32 connectors. Immutable entry rows are inserted in one batch,
-with no per-entry SQL readback. The current manifest lists only those rows;
-the publication version, digest and full attested compressed snapshot remain
-unchanged. Compatibility evaluations and bundled skills are prepared only for
-the selected entries. This is a preview projection, not a
-new publication or a promise that every official connector is available there.
+`deploy-api` still runs `db:dev-seed --preview-onboarding-catalog` and then
+calls `/api/cron/seed-preview-onboarding-catalog`; the flag and path keep their
+historical names so the workflow is unchanged. Both now initialize the complete
+validated official R2 publication. This replaces the former onboarding/Runner
+E2E projection (32 connectors), which left every other official connector
+absent once business readers moved to immutable entries. There is no subset,
+slug allowlist or legacy gzip/R2 read fallback, and readers are unchanged.
 
-Before aliasing the deployed preview or starting downstream E2E, CI calls
-`/api/cron/seed-preview-onboarding-catalog` with the existing cron secret. The
-endpoint repeats that bounded initialization using the deployed API's actual
-capability configuration; it does not call the full synchronizer. It returns
-404 outside `ENV=preview`. The seed command also rejects non-preview use, and
-the CLI flag is checked before any development seed writes. An unavailable,
-invalid or incomplete publication fails initialization; there is no full-sync
-fallback, fabricated active identity, or relaxed byte/relationship validation.
+Initialization reuses the production synchronizer's entry preparation. It
+lists entries already present at the publication hash, registers bundled skill
+storages/versions (and their Pi resource index rows) for the missing entries,
+then writes those entries. Only after every entry exists does one transaction
+upsert the schema-versioned pointer with the full slug manifest, together with
+the legacy compressed snapshot, synchronization state and compatibility row
+that older API instances still read. The previous generation keeps serving if
+download, byte-digest validation, skill registration or an entry write fails.
+Each deploy resets the preview Neon branch from its parent, so dev-seed performs
+a cold initialization. The post-deploy call finds the generation complete and
+only repeats download, validation and the pointer transaction. Pi invalidation
+and runtime wakeups remain production-synchronizer behavior.
 
-New workflow and new API are shipped from the same checked-out commit. An old
-API does not have the new endpoint, so the new workflow fails before exposing
-its alias rather than silently using another preview or the full synchronizer.
-Old workflow with new API retains the old full-sync invocation. Rollback must
-reset/discard the bounded preview generation before relying on full initialization:
-the unchanged full synchronizer's same-digest shortcut does not detect a partial
-preview manifest. Merely removing the CLI flag is not a full-materialization
-repair. Never promote this test database into production. No schema migration,
-production configuration, App/Runner protocol or release action is part of this
-change. Production's existing minute cron and its full validation, CAS activation
-and invalidation behavior remain unchanged.
+Entry preparation, for both production synchronization and preview, writes
+missing entries in multi-row `INSERT ... ON CONFLICT DO NOTHING` statements of
+at most 100 entries in publication order, instead of one statement per entry.
+Entry existence remains the preparation receipt; an interrupted preparer can
+leave whole batches, which a retry reuses. Production publication
+`2026-10-04.4587` has 4,597 entries and 4,554 bundled skills, 30.6 MB raw
+(5.5 MB compressed), and about 55 MiB of entry rows including derived columns.
+That is 46 entry statements, the largest about 1.8 MiB. Before the projection,
+the per-entry full synchronizer took 3.5 to 8.4 minutes (median about 6) within
+`deploy-api`'s 25-minute job, from a GitHub runner to the Neon test project.
+With batched writes, that publication initializes cold in about 8 seconds
+against local PostgreSQL, including a simulated 20 ms round trip; the repeated
+post-deploy call takes about 3 seconds. A CI preview deploy against Neon
+installed all 4,597 entries in about 11 seconds (dev-seed about 15 seconds,
+post-deploy call about 7 seconds).
+
+The workflow is unchanged, and the endpoint's response shape is unchanged; its
+slug list is now the complete manifest. Rolling back to the projection API
+reinstalls the projection on the next deploy, because the branch is reset first. Never promote this test database into production. No
+schema migration, production configuration, App/Runner protocol or release
+action is part of this change.
 
 ## Personal subscription CLI and Reset Cards
 

@@ -146,15 +146,52 @@ interface ConnectorCatalogDiscoveryRead {
 
 type ExternalConnectorCatalogUnavailableReason =
   | "missing_current_identity"
-  | "missing_entries";
+  | "missing_entries"
+  | "missing_required_entries";
 
 export class ExternalConnectorCatalogUnavailableError extends Error {
   readonly code: `CONNECTOR_CATALOG_UNAVAILABLE:${ExternalConnectorCatalogUnavailableReason}`;
 
-  constructor(readonly reason: ExternalConnectorCatalogUnavailableReason) {
-    super("Accepted external connector catalog is unavailable");
+  constructor(
+    readonly reason: ExternalConnectorCatalogUnavailableReason,
+    message = "Accepted external connector catalog is unavailable",
+  ) {
+    super(message);
     this.name = "ExternalConnectorCatalogUnavailableError";
     this.code = `CONNECTOR_CATALOG_UNAVAILABLE:${reason}`;
+  }
+}
+
+/**
+ * Without a manifest, a missing entry and a slug the generation never had are
+ * indistinguishable. Paths whose slugs are already authorized business facts
+ * (a Run's enabled connectors, its admitted accounts) must not shrink that
+ * scope silently, so they fail with this error instead of omitting the slug.
+ */
+export class RequiredConnectorCatalogEntriesMissingError extends ExternalConnectorCatalogUnavailableError {
+  constructor(readonly connectorSlugs: readonly ConnectorSlug[]) {
+    super(
+      "missing_required_entries",
+      `Connector catalog entries are missing for required connectors: ${connectorSlugs.join(", ")}`,
+    );
+    this.name = "RequiredConnectorCatalogEntriesMissingError";
+  }
+}
+
+/** Throws when any required slug has no entry at the captured catalog hash. */
+export function assertRequiredConnectorCatalogEntries(
+  presentConnectorSlugs: ReadonlySet<string> | ReadonlyMap<string, unknown>,
+  requiredConnectorSlugs: readonly ConnectorSlug[],
+): void {
+  const missing = [...new Set(requiredConnectorSlugs)]
+    .filter((connectorSlug) => {
+      return !presentConnectorSlugs.has(connectorSlug);
+    })
+    .sort((left, right) => {
+      return left < right ? -1 : left > right ? 1 : 0;
+    });
+  if (missing.length > 0) {
+    throw new RequiredConnectorCatalogEntriesMissingError(missing);
   }
 }
 
@@ -223,17 +260,11 @@ function measureCatalogLoadSync<T>(
   return timing ? timing.measureSync(actionType, operation) : operation();
 }
 
-// Category labels belong to the same pointer row as the captured hash.
-interface CurrentCatalogCapture {
-  readonly identity: ExternalCatalogIdentity;
-  readonly categoryMetadata: AcceptedConnectorCatalogSnapshot["artifact"]["categoryMetadata"];
-}
-
 async function readCurrentIdentity(args: {
   readonly db: ReadonlyDb;
   readonly capabilityDigest: string;
   readonly timing?: ConnectorCatalogLoadTiming;
-}): Promise<CurrentCatalogCapture | undefined> {
+}): Promise<ExternalCatalogIdentity | undefined> {
   const [row] = await measureCatalogLoad(
     args.timing,
     "api_dispatch_connector_catalog_query_identity",
@@ -242,7 +273,6 @@ async function readCurrentIdentity(args: {
         .select({
           schemaVersion: connectorCatalog.schemaVersion,
           hash: connectorCatalog.hash,
-          catalogHeader: connectorCatalog.catalogHeader,
         })
         .from(connectorCatalog)
         .where(
@@ -255,10 +285,7 @@ async function readCurrentIdentity(args: {
     },
   );
   return row
-    ? {
-        identity: catalogIdentityFromCapture(row, args.capabilityDigest),
-        categoryMetadata: row.catalogHeader.categoryMetadata,
-      }
+    ? catalogIdentityFromCapture(row, args.capabilityDigest)
     : undefined;
 }
 
@@ -283,7 +310,6 @@ async function readCurrentCatalogPayload(args: {
 async function readCurrentCatalog(args: {
   readonly db: ReadonlyDb;
   readonly identity: ExternalCatalogIdentity;
-  readonly categoryMetadata: CurrentCatalogCapture["categoryMetadata"];
   readonly capability: ExecutableCapabilityState;
   readonly timing?: ConnectorCatalogLoadTiming;
 }): Promise<AcceptedConnectorCatalogSnapshot> {
@@ -298,13 +324,11 @@ async function readCurrentCatalog(args: {
 
 function materializeAcceptedConnectorCatalog(args: {
   readonly identity: ExternalCatalogIdentity;
-  readonly categoryMetadata: CurrentCatalogCapture["categoryMetadata"];
   readonly capability: ExecutableCapabilityState;
   readonly timing?: ConnectorCatalogLoadTiming;
   readonly rows: Awaited<ReturnType<typeof readCurrentCatalogPayload>>;
 }): AcceptedConnectorCatalogSnapshot {
   const artifact = {
-    categoryMetadata: args.categoryMetadata,
     connectors: args.rows.map((row) => {
       return row.payload;
     }),
@@ -400,19 +424,18 @@ export async function loadAcceptedConnectorCatalogSnapshot(
   timing?: ConnectorCatalogLoadTiming,
 ): Promise<AcceptedConnectorCatalogSnapshot> {
   const capability = connectorCatalogExecutableCapabilityState();
-  const capture = await readCurrentIdentity({
+  const identity = await readCurrentIdentity({
     db,
     capabilityDigest: capability.digest,
     ...(timing === undefined ? {} : { timing }),
   });
-  if (!capture) {
+  if (!identity) {
     throw new ExternalConnectorCatalogUnavailableError(
       "missing_current_identity",
     );
   }
   // Entries are immutable and retained by hash. A later pointer switch cannot
   // strand this capture, so the legacy mutable-snapshot retry is unnecessary.
-  const { identity, categoryMetadata } = capture;
   return await readCachedConnectorCatalogSnapshot({
     identity,
     timing,
@@ -420,7 +443,6 @@ export async function loadAcceptedConnectorCatalogSnapshot(
       return await readCurrentCatalog({
         db,
         identity,
-        categoryMetadata,
         capability,
         ...(timing === undefined ? {} : { timing }),
       });
@@ -679,39 +701,6 @@ export function listAcceptedConnectorCatalogAvailableSlugs(args: {
     .sort();
 }
 
-function categoryMetadataForConnectors(
-  catalog: AcceptedConnectorCatalogSnapshot,
-  connectors: readonly EffectiveConnector[],
-): PublicConnectorCatalogListResponse["categoryMetadata"] {
-  const visibleCategories = new Set(
-    connectors.map((effective) => {
-      return effective.connector.category;
-    }),
-  );
-  const categories = catalog.artifact.categoryMetadata.categories.filter(
-    (category) => {
-      return visibleCategories.has(category.id);
-    },
-  );
-  const visibleGroups = new Set(
-    categories.flatMap((category) => {
-      return category.groupId === null ? [] : [category.groupId];
-    }),
-  );
-  return {
-    categories: categories.map((category) => {
-      return { ...category };
-    }),
-    groups: catalog.artifact.categoryMetadata.groups
-      .filter((group) => {
-        return visibleGroups.has(group.id);
-      })
-      .map((group) => {
-        return { ...group };
-      }),
-  };
-}
-
 function connectionForCatalogStatus(
   connector: BuiltinConnectorResponse | null,
 ): PublicConnectorCatalogConnection | null {
@@ -937,7 +926,6 @@ export async function listExternalPublicConnectorCatalog(
     connectors: connectors.map((connector) => {
       return connectorCatalogItem(connector, popularityIndex);
     }),
-    categoryMetadata: categoryMetadataForConnectors(catalog, connectors),
   };
 }
 
@@ -1206,12 +1194,6 @@ export async function discoverExternalPublicConnectorCatalogStatus(
     catalog,
     effective: discoveryEffectiveConnectors(effective, args),
     featureStates: args.featureStates,
-    // The category list and the category counts describe the same thing, so
-    // they are computed from the same set: the whole catalog minus the
-    // connectors Okou runs for itself, not the slice that came back for a
-    // named category. Offering a category the counts do not know would be a
-    // chip that opens nothing.
-    categorySource: withoutInternalConnectors(effective),
     connections: args.connections,
     referenceConnectorSlugs: args.referenceConnectorSlugs,
   });
@@ -1229,13 +1211,6 @@ function connectorCatalogStatusRead(args: {
   readonly catalog: AcceptedConnectorCatalogSnapshot;
   readonly effective: readonly EffectiveConnector[];
   readonly featureStates: ConnectorFeatureStates;
-  /**
-   * The connectors the category list describes, when that is wider than the
-   * ones being returned. Discovery answers a named category with only that
-   * category, and the category list is how a client offers the others, so it
-   * has to keep describing the whole catalog. Defaults to what is returned.
-   */
-  readonly categorySource?: readonly EffectiveConnector[];
   readonly connections: readonly ConnectorCatalogConnection[];
   readonly referenceConnectorSlugs: readonly string[];
 }): ConnectorCatalogStatusRead {
@@ -1254,13 +1229,7 @@ function connectorCatalogStatusRead(args: {
     });
   });
   return {
-    status: {
-      connectors,
-      categoryMetadata: categoryMetadataForConnectors(
-        args.catalog,
-        args.categorySource ?? args.effective,
-      ),
-    },
+    status: { connectors },
     referenceMetadata: referenceMetadataForCatalog(
       args.catalog,
       args.referenceConnectorSlugs,

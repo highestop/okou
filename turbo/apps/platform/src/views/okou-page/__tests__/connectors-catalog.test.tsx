@@ -133,10 +133,6 @@ test("Browse connectors by category", async () => {
     });
   expect(labels).toContain("GitHub");
   expect(labels).toContain("Asana");
-  const ai = screen.getByTestId("connector-category-ai");
-  expect(
-    ai.compareDocumentPosition(engineering) & Node.DOCUMENT_POSITION_FOLLOWING,
-  ).toBeTruthy();
   // The catalog is browsed a category at a time, and a category is far taller
   // than the viewport. Its marks are fetched as they are reached.
   expect(getConnectorIcon("Asana")).toHaveAttribute("loading", "lazy");
@@ -329,26 +325,6 @@ test("Present a connector with no accounts and start direct OAuth", async () => 
   oauthStarted.resolve();
 });
 
-function shelfCategoryMetadata() {
-  return {
-    categories: [
-      {
-        id: "communication-collaboration",
-        label: "Communication and Collaboration",
-        menuLabel: "Communication",
-        groupId: null,
-      },
-      {
-        id: "ai-voice-audio",
-        label: "Voice / Audio",
-        menuLabel: "Voice and Audio",
-        groupId: null,
-      },
-    ],
-    groups: [],
-  };
-}
-
 function shelfCatalog() {
   // Sixteen, so the category holds more than the twelve discovery returns for
   // it when no category is asked for by name.
@@ -392,7 +368,7 @@ function shelfCatalog() {
 
 test("Browse the catalog as shelves, then enter a category and come back", async () => {
   mockConnectors(context, []);
-  mockPublicConnectorStatus(context, shelfCatalog(), shelfCategoryMetadata(), {
+  mockPublicConnectorStatus(context, shelfCatalog(), {
     "communication-collaboration": 327,
     "ai-voice-audio": 50,
   });
@@ -463,12 +439,10 @@ test("Land on Discover, then switch to the connectors this workspace has", async
     { connectorSlug: "mail-0" as ConnectorSlug },
     { connectorSlug: "mail-1" as ConnectorSlug },
   ]);
-  mockPublicConnectorStatus(
-    context,
-    connectedShelfCatalog(),
-    shelfCategoryMetadata(),
-    { "communication-collaboration": 327, "ai-voice-audio": 50 },
-  );
+  mockPublicConnectorStatus(context, connectedShelfCatalog(), {
+    "communication-collaboration": 327,
+    "ai-voice-audio": 50,
+  });
   await setupPage({
     context,
     path: "/connectors",
@@ -528,12 +502,10 @@ test("Warn on the scope control when a connection this workspace owns needs a re
       reconnectReason: "authorization_expired_or_revoked",
     },
   ]);
-  mockPublicConnectorStatus(
-    context,
-    connectedShelfCatalog(),
-    shelfCategoryMetadata(),
-    { "communication-collaboration": 327, "ai-voice-audio": 50 },
-  );
+  mockPublicConnectorStatus(context, connectedShelfCatalog(), {
+    "communication-collaboration": 327,
+    "ai-voice-audio": 50,
+  });
   await setupPage({
     context,
     path: "/connectors",
@@ -567,12 +539,10 @@ test("Find the connectors no agent is using", async () => {
         agentId === researchId ? ["mail-0" as ConnectorSlug] : [],
     };
   });
-  mockPublicConnectorStatus(
-    context,
-    connectedShelfCatalog(),
-    shelfCategoryMetadata(),
-    { "communication-collaboration": 327, "ai-voice-audio": 50 },
-  );
+  mockPublicConnectorStatus(context, connectedShelfCatalog(), {
+    "communication-collaboration": 327,
+    "ai-voice-audio": 50,
+  });
   await setupPage({
     context,
     path: "/connectors?scope=connected",
@@ -598,12 +568,10 @@ test("Find the connectors no agent is using", async () => {
 
 test("Reach the connectors this workspace built from their own segment", async () => {
   mockConnectors(context, [{ connectorSlug: "mail-0" as ConnectorSlug }]);
-  mockPublicConnectorStatus(
-    context,
-    connectedShelfCatalog(),
-    shelfCategoryMetadata(),
-    { "communication-collaboration": 327, "ai-voice-audio": 50 },
-  );
+  mockPublicConnectorStatus(context, connectedShelfCatalog(), {
+    "communication-collaboration": 327,
+    "ai-voice-audio": 50,
+  });
   context.mocks.api(customConnectorsContract.list, ({ respond }) => {
     return respond(200, { connectors: [customConnector()] });
   });
