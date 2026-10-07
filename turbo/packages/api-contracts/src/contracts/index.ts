@@ -403,7 +403,6 @@ export {
   modelProviderListResponseSchema,
   upsertModelProviderRequestSchema,
   upsertModelProviderResponseSchema,
-  runModelRouteStatusSchema,
   availableRunModelSchema,
   availableRunModelsResponseSchema,
   runModelIdSchema,
@@ -427,7 +426,6 @@ export {
   type ModelProviderListResponse,
   type UpsertModelProviderRequest,
   type UpsertModelProviderResponse,
-  type RunModelRouteStatus,
   type AvailableRunModel,
   type AvailableRunModelsResponse,
   type ModelProviderCredentialScope,
@@ -1082,12 +1080,6 @@ export {
   type RunContextResponse,
   type RunRunnerResponse,
 } from "./run-routes";
-export {
-  builtInModelCooldownDiagnosticsSchema,
-  modelProviderCooldownDiagnosticsContract,
-  type BuiltInModelCooldownDiagnostics,
-  type ModelProviderCooldownDiagnosticsContract,
-} from "./model-provider-routes";
 export {
   personalModelProvidersMainContract,
   personalModelProvidersByTypeContract,
