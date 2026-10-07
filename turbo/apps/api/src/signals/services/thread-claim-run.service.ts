@@ -22,7 +22,11 @@ import {
   type StoredExecutionContext,
   type StoredStorageMountEntry,
 } from "@okouai/api-contracts/contracts/runners";
-import { AUTO_RUN_MODEL, AUTO_RUN_PROVIDER } from "@okouai/core/auto-run-model";
+import {
+  AUTO_RUN_KEY_VENDOR,
+  AUTO_RUN_MODEL,
+  AUTO_RUN_PROVIDER,
+} from "@okouai/core/auto-run-model";
 import { activeAgentRuns } from "@okouai/db/schema/active-agent-run";
 import { queuedChatThreads } from "@okouai/db/schema/queued-chat-thread";
 import { CONVERSATION_GUIDANCE } from "../../lib/conversation-guidance";
@@ -2999,13 +3003,11 @@ export function createThreadClaimRunObjects(
       return await get(context.featureSwitches$);
     },
   );
-  const keyIdsByVendor$ = computed(async (get) => {
+  const modelKeyId$ = computed(async (get) => {
     const rows = await get(context.managedModelKeys$);
-    return new Map(
-      rows.map((row) => {
-        return [row.vendor, row.id];
-      }),
-    );
+    return rows.find((row) => {
+      return row.vendor === AUTO_RUN_KEY_VENDOR;
+    })?.id;
   });
   const cooldowns$ = computed(async (get) => {
     const pin = await get(queuedModelRuntimeModelPin$);
@@ -3048,14 +3050,14 @@ export function createThreadClaimRunObjects(
       },
       await get(context.modelPricing$),
     );
-    const [keyIdsByVendor, cooldowns] = await Promise.all([
-      get(keyIdsByVendor$),
+    const [modelKeyId, cooldowns] = await Promise.all([
+      get(modelKeyId$),
       get(cooldowns$),
     ]);
     return builtInModelRuntimeRouteFromSnapshot({
       catalog,
       selectedModel: pin.selectedModel,
-      keyIdsByVendor,
+      modelKeyId,
       cooldowns,
       routePricing,
     });
@@ -6421,7 +6423,7 @@ export function createThreadClaimRunObjects(
       frameworkForProviderSelection(
         args.catalog,
         provider.type,
-        args.selectedModelOverride ?? provider.selectedModel,
+        args.selectedModelOverride,
       ) ?? composeFramework
     );
   });
@@ -6430,24 +6432,11 @@ export function createThreadClaimRunObjects(
     if (isRouteError(input)) {
       return input;
     }
-    const [content, requestedFramework] = await Promise.all([
-      get(content$),
-      get(runFramework$),
-    ]);
-    if (isRouteError(content)) {
-      return content;
-    }
+    const requestedFramework = await get(runFramework$);
     if (isRouteError(requestedFramework)) {
       return requestedFramework;
     }
     const args = input.args;
-    const hasProviderOverride =
-      args.modelProviderId !== undefined ||
-      args.modelProviderCredentialScope !== undefined;
-    const shouldResolve =
-      hasProviderOverride ||
-      !hasExplicitFrameworkApiKey(content, requestedFramework) ||
-      isBuiltInModelProviderType(args.modelProviderType);
     const environmentArgs: ResolveModelProviderEnvironmentArgs = {
       catalog: args.catalog,
       orgId: args.orgId,
@@ -6465,19 +6454,13 @@ export function createThreadClaimRunObjects(
     };
     return {
       input,
-      content,
       requestedFramework,
       environmentArgs,
-      shouldResolve,
     };
   });
   const pinnedContext$ = computed(async (get) => {
     const context = await get(providerContext$);
-    if (
-      isRouteError(context) ||
-      !context.input.args.queueFirstAssociation ||
-      !context.shouldResolve
-    ) {
+    if (isRouteError(context) || !context.input.args.queueFirstAssociation) {
       return null;
     }
     if (context.environmentArgs.retainedRunId) {
@@ -6606,18 +6589,13 @@ export function createThreadClaimRunObjects(
     if (isRouteError(context)) {
       return context;
     }
-    if (!context.shouldResolve) {
-      return null;
-    }
     return await context.input.timing.measure(
       "api_dispatch_prepare_context_resolve_model_provider",
       "nested",
       async () => {
         return (
           (await get(environment$)) ??
-          providerUnavailable(
-            `No model provider configured and ${frameworkApiKeyEnv(context.requestedFramework)} is not declared in compose environment`,
-          )
+          providerUnavailable("No model provider is available for this run")
         );
       },
     );
@@ -13789,20 +13767,6 @@ function modelProviderFramework(
   modelProvider: ResolvedModelProviderEnvironment,
 ): SupportedFramework {
   return getFrameworkForType(modelProvider.concreteType ?? modelProvider.type);
-}
-
-function frameworkApiKeyEnv(framework: SupportedFramework): string {
-  return framework === "codex" ? "OPENAI_API_KEY" : "ANTHROPIC_API_KEY";
-}
-
-function hasExplicitFrameworkApiKey(
-  content: agentRunCreateAgentExecutionConfig,
-  framework: SupportedFramework,
-): boolean {
-  return (
-    firstAgent(content)?.environment?.[frameworkApiKeyEnv(framework)] !==
-    undefined
-  );
 }
 
 function piConfigurationRouteError(

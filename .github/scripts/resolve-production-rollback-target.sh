@@ -58,6 +58,7 @@ readonly IMAGE_MODEL_THREAD_COLUMNS_DROP_PATH=turbo/packages/db/src/migrations/1
 readonly VIDEO_ENTITLEMENT_DROP_PATH=turbo/packages/db/src/migrations/1315_drop_retired_video_entitlement.sql
 readonly RETIRED_MODEL_CONFIGURATION_COLUMNS_DROP_PATH=turbo/packages/db/src/migrations/1330_drop_retired_model_configuration_columns.sql
 readonly CHAT_THREAD_PROVIDER_PIN_COLUMNS_DROP_PATH=turbo/packages/db/src/migrations/1332_drop_chat_thread_provider_pin_columns.sql
+readonly DEAD_MODEL_PROVIDER_COLUMNS_DROP_PATH=turbo/packages/db/src/migrations/1333_drop_dead_model_provider_columns.sql
 
 fail() {
   echo "::error::$*" >&2
@@ -281,6 +282,19 @@ if [[ ! "$chat_thread_provider_pin_columns_drop_commit" =~ ^[0-9a-f]{40}$ ]]; th
 fi
 if ! git merge-base --is-ancestor "$chat_thread_provider_pin_columns_drop_commit" "$TARGET_COMMIT"; then
   fail "Rollback target predates the chat thread provider pin column drop: ${chat_thread_provider_pin_columns_drop_commit}."
+fi
+# Migration 1333 drops model_providers.auth_method, model_providers.is_default,
+# model_providers.selected_model, model_routes.price_tier and
+# run_model_catalog.is_system_default. Every earlier API still declares and
+# selects them in personal subscription and model catalog reads, so it cannot
+# serve after 1333. This floor descends from the 1332 floor.
+dead_model_provider_columns_drop_commit=$(git log --reverse --first-parent --diff-filter=A --format=%H \
+  origin/main -- "$DEAD_MODEL_PROVIDER_COLUMNS_DROP_PATH" | sed -n '1p')
+if [[ ! "$dead_model_provider_columns_drop_commit" =~ ^[0-9a-f]{40}$ ]]; then
+  fail "Cannot resolve the merged dead model provider column drop on main."
+fi
+if ! git merge-base --is-ancestor "$dead_model_provider_columns_drop_commit" "$TARGET_COMMIT"; then
+  fail "Rollback target predates the dead model provider column drop: ${dead_model_provider_columns_drop_commit}."
 fi
 
 # Chat Event V8 removes eight event types and two context types. Earlier APIs
