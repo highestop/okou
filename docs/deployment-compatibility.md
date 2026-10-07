@@ -31,7 +31,9 @@ The display catalog cache contains no firewall or skill objects. Permission deta
 slug. Runtime captures, sync, Pi recapture and staff diagnostics use independent
 column selections instead of returning the complete payload. (Staff
 diagnostics were later removed; see
-[diagnostics removal](#connector-catalog-diagnostics-removed-2026-10-07).) Runtime consumers
+[diagnostics removal](#connector-catalog-diagnostics-removed-2026-10-07). Pi
+recapture was retired with the
+[stable-context tables](#pi-stable-context-tables-retired-2026-10-07).) Runtime consumers
 that materialize full executable connectors still load auth, skill and firewall
 fields; this change does not claim a new minimal runtime projection or measured
 S1–S3 latency improvement.
@@ -60,6 +62,45 @@ combine these stages merely because reads no longer return payload.
 
 This PR prepares that contraction; it neither drops payload nor activates or
 releases production changes.
+
+## Pi stable-context tables retired (2026-10-07)
+
+The Pi stable-context cache never had a production reader and is removed from
+the API: run launch builds the stable prompt directly, and the API no longer
+invalidates, records demand for, materializes, garbage-collects or drains
+stable-context heads, artifacts or Pi resource snapshots. The materialize cron
+response no longer has a `stableContext` field (only Vercel cron calls it).
+
+Migration `1343_retire_pi_stable_context` drops `pi_stable_context_heads`,
+`pi_stable_context_artifacts`, `pi_stable_context_artifact_resources` and
+`pi_resource_snapshots` with their indexes, checks and foreign keys. It keeps
+the reserve-before-IO publication fence for Agent instructions and Workflow
+volumes, which still rejects an older, slower upload with `409` once a newer
+reservation exists. Its tables are renamed: `pi_stable_context_generations` to
+`storage_publication_generations` and `pi_stable_context_publications` to
+`storage_publication_tokens`. Their primary keys, generation checks and the
+token index are renamed to the matching `storage_publication_*` names. The
+generation table drops `publication_state` and its state check, which only the
+stable-context reader consumed.
+
+Dropping the three tables with foreign keys briefly takes exclusive locks on
+`agents`, `storages` and `storage_versions`. The default 1s `lock_timeout`
+bounds the wait, so a busy moment can fail the migration; a retry resolves it.
+
+Database ordering: migrations run before API promotion. Every API built before
+1343 writes the dropped tables and the old generation and publication table
+names on Agent update, instructions, Workflow create/update/delete/visibility,
+Storage HEAD publication, connector, permission, feature-switch and catalog
+writes, Clerk and Agent deletion, and its crons. It fails on those paths
+(`42P01`/`42703`) until it drains. This is not rolling-compatible; the
+interruption while the previous API drains is accepted by explicit owner
+decision (2026-10-07). No preparatory release or compatibility branch is
+required. Acceptance of that risk is not an instruction to deploy.
+
+Rollback floor: the rollback resolver resolves the first-parent `main` commit
+that added `1343_retire_pi_stable_context.sql` and rejects earlier targets
+before artifact or host access. Recovering below it requires a reviewed forward
+migration that recreates the old tables before an older API serves.
 
 ## Connector catalog diagnostics removed (2026-10-07)
 
@@ -329,8 +370,7 @@ is described under
 [business readers](#connector-catalog-business-readers-on-pointer-and-immutable-entries):
 every reader omits an agent-enabled connector that is missing from the
 captured generation, as if the user had never authorized it, and Runner
-runtime sync reports the target `unresolved`. A dedicated test covers
-recapture: it publishes a stable context that launch can read while the
+runtime sync reports the target `absent`. Run launch omits it while the
 connector stays enabled.
 
 **Known, accepted behavior: brief pointer regression between two writers.**
@@ -357,10 +397,11 @@ its still-current content is:
 - An accepted change to a connector's runtime-bearing `mcp`, `authMethods` or
   `firewall` wakes affected builtin HTTP and MCP Runs so the Runner resolves the
   current endpoint, credentials and firewall policy. Removing a builtin
-  connector from the catalog is not terminal absence: runtime sync reports
-  the registered target `unresolved`, so a Run that is already active keeps its
-  last-known-good policy and credential injection until it ends, while new
-  launches omit the connector. Builtin MCP execution and Automatic
+  connector from the catalog wakes active Runs too, and runtime sync reports
+  the registered target `absent`, as if it were never authorized: the Runner
+  drops its policy and credential injection, and new launches omit the
+  connector. If a later generation restores the connector, the next wakeup
+  reports it `available` again. Builtin MCP execution and Automatic
   authentication are described under
   [Builtin MCP execution](#builtin-mcp-execution).
 
@@ -396,8 +437,7 @@ bundled skill storage/version identity checks at registration. It then
 prepares the complete generation (reusing entries already present at that
 hash, registering missing skills, and inserting the rest with batched
 `INSERT ... ON CONFLICT DO NOTHING` of at most 100 rows) before one
-transaction upserts the pointer and, only if the hash actually changed,
-invalidates Pi stable contexts. The upsert is conditional, so exactly one
+transaction upserts the pointer. The upsert is conditional, so exactly one
 concurrent writer observes a given switch, including the very first
 publication; runtime wakeups follow that commit. A failure or interruption
 before the pointer commit leaves the previous generation serving and at most an
@@ -590,26 +630,25 @@ unauthorized by the user, so no per-slug or selected-entry reader fails on
 it; each treats the slug as if it were never authorized. The current contract
 is:
 
-- Run capture at launch, Pi stable-context recapture and the Run MCP connector
-  list omit an agent-enabled connector or admitted account whose entry is
-  missing at the captured hash. The Run launches without it, the stable
-  context publishes without that connector's skill mount (its cache identity
-  keeps the stored scope, matching launch), and the MCP list leaves it out.
-  The agent keeps its enabled-connector setting, and the connector returns
-  once a later generation contains it again (the catalog switch invalidates
-  Pi stable contexts).
-- Runner runtime sync omits the missing entry and reports that registered
-  builtin target as `unresolved` (the Runner keeps last-known-good and
-  retries), never as authoritative `absent`.
+- Run capture at launch and the Run MCP connector list omit an agent-enabled
+  connector or admitted account whose entry is missing at the captured hash.
+  The Run launches without it and the MCP list leaves it out. The agent keeps
+  its enabled-connector setting, and the connector returns once a later
+  generation contains it again.
+- Runner runtime sync reports that registered builtin target as `absent`
+  (`connector-unavailable`). The Runner removes its firewall policy, and a
+  later `available` result after the connector returns restores it.
+  `unresolved` remains for credential and refresh problems on a connector that
+  is still in the catalog.
 - Optional reads (search, discovery, connect items, connected briefs,
   single-item status/permission and account GETs, stored-connection lists,
   account lifecycle refresh, display filters, and metadata-only custom
   permission-bundle dependencies) omit the slug or return not-found.
 
 This contract does not probe all slugs or restore a manifest, and a
-missing slug in one reader is never a global catalog failure. Old Runners
-already treat `unresolved` as retain-and-retry, so no Runner protocol change
-is required. A missing pointer or an empty
+missing slug in one reader is never a global catalog failure. Runners
+already handle builtin `absent`, so no Runner protocol change is required.
+A missing pointer or an empty
 whole-catalog generation fails unavailable; there is no legacy or R2 read
 fallback. The pointer read selects only `schema_version` and `hash`; no
 business reader reads `connector_catalog.catalog_header`, which writers still
@@ -5254,6 +5293,10 @@ needed. This migration performs no such drain. Monitor pending-list growth and
 cron convergence after release; a deferred watermark is never advanced.
 
 ## Pi stable-context schema rollout and rollback
+
+Status: retired by migration `1343_retire_pi_stable_context`; see
+[Pi stable-context tables retired](#pi-stable-context-tables-retired-2026-10-07).
+The history below describes the original rollout.
 
 Migration 1168, following retained main migrations through
 `1167_private_artifact_absolute_urls`, adds
