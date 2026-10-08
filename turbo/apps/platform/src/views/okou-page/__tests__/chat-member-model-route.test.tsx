@@ -3,7 +3,6 @@ import type { AvailableRunModel } from "@okouai/api-contracts/contracts/model-pr
 import { personalModelProvidersMainContract } from "@okouai/api-contracts/contracts/personal-model-providers";
 import { runModelsMainContract } from "@okouai/api-contracts/contracts/run-models";
 import { act, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import {
   findModelOption,
@@ -33,13 +32,9 @@ function runModel(
   });
 }
 
-test.each([
-  { modelLabel: "GPT 5.6 Sol", source: "ChatGPT (Codex)" },
-  { modelLabel: "Claude Sonnet 5", source: "Claude Code (OAuth Token)" },
-])(
-  "Shows $source in the model panel with personal subscription help",
-  async ({ modelLabel, source }) => {
-    const user = userEvent.setup({ delay: null });
+test.each([{ modelLabel: "GPT 5.6 Sol" }, { modelLabel: "Claude Sonnet 5" }])(
+  "Shows $modelLabel in the model panel as just its model name",
+  async ({ modelLabel }) => {
     installRunChat({ selectedModel: "gpt-5.6-sol" });
     context.mocks.data.availableRunModels([
       runModel("available"),
@@ -60,14 +55,7 @@ test.each([
     }, panel);
     expect(option).not.toHaveAttribute("aria-disabled", "true");
     expect(option).not.toBeDisabled();
-    expect(option).not.toHaveTextContent("$");
-    expect(option).toHaveTextContent(source);
-    const badge = within(option).getByText(source);
-    await user.hover(badge);
-    await expect(
-      screen.findByText("Used only in your runs, with your own credentials."),
-    ).resolves.toBeInTheDocument();
-    expect(screen.getByText(`${source}:`)).toBeInTheDocument();
+    expect(option.textContent?.trim()).toBe(modelLabel);
   },
 );
 
