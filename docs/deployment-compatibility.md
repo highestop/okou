@@ -7668,8 +7668,8 @@ App requests already use `view=scoped`.
 Before #36992, the original conversion-preview endpoint contained only an
 aggregate count of other owners' SSH hosts and an opaque impact snapshot. The
 action requires a current organization admin, expected Access revision, and
-unchanged impact. The transaction locks
-the Access row before host rows, detaches other owners' references into
+unchanged impact. Before #37941, the transaction locked
+the Access row before host rows. Conversion detaches other owners' references into
 `needs_rebind`, advances effective generations, then makes the same Access row
 personal to the admin without decrypting or replacing its Service Token.
 Admin-owned SSH references remain bound. After commit, Access-list and affected
@@ -7701,7 +7701,7 @@ promotion or reviewed delete operations.
 Before #36992, the legacy deletion-preview endpoint let a current admin review
 Organization deletion impact with owner identity and per-owner host counts. The
 optional opaque snapshot is required only when other owners' hosts are affected. DELETE rechecks the exact revision and host
-set under the Access-before-host lock, blocks any actor-owned reference, and
+set under its mutation fence (Access-before-host before #37941), blocks any actor-owned reference, and
 atomically detaches only other owners' references into `needs_rebind` before
 deleting the config (the same-org FK remains restrictive). Profiles missing
 from the member directory are shown by stable owner ID; their hosts still
@@ -7720,9 +7720,12 @@ is safe once migration `1222` and those prerequisites are verified.
 
 ### Cloudflare Access trigger retirement (#37355, #37369)
 
-The SSH create/update writer validates a referenced config in its transaction:
-it selects only a same-organization shared config or the actor's own Personal
-config with a config-row `FOR SHARE` lock before binding. Inline SSH creation
+The intended SSH create/update admission protocol validates a referenced config
+in its transaction: it selects only a same-organization shared config or the
+actor's own Personal config with a config-row `FOR SHARE` lock before binding.
+The later current-main investigation in #37941 found create using an unlocked
+transactional read and edit using only a preflight read; that repair restores
+transaction-held shared admission and fixes the configuration/host inversion. Inline SSH creation
 inserts its Personal config in the same transaction. Config creation limits
 Organization scope to current admins; name/token update, reviewed delete and
 both conversion writers lock the config `FOR UPDATE` before changing it.
@@ -7758,6 +7761,46 @@ window, not a general guarantee for external SQL, catalog drift or corrupted
 rows. Recheck the serving aliases and rollback floor before releasing the
 contraction. A PR merge, CI pass or smoke-clone migration does **not** establish
 production migration journal completion; record it only after the real release.
+
+### Cloudflare SSH concurrency repair (#37941)
+
+Configuration rename/token update, deletion, Personal-to-Organization promotion
+and Organization-to-Personal adoption acquire current referencing hosts in UUID
+order with `FOR NO KEY UPDATE`, then the configuration `FOR UPDATE`. The weaker
+host lock remains compatible with implicit `FOR KEY SHARE` checks from restrictive
+parent-login deletion. Runner pin/observation continues to acquire its host
+before shared login/configuration authority.
+
+Selected host create/edit rechecks same-organization Organization or same-owner
+Personal visibility with `FOR SHARE` inside the write transaction, before inline
+resource inserts, held through commit. An existing-host edit first locks and
+reloads its host and rechecks the expected host generation. The unlocked early
+check rejects a bad selection before preparing a new login; it is not commit
+authority. Configuration existence and the same-org FK do not prove Personal
+visibility, and `FOR KEY SHARE` does not fence a non-key scope change.
+
+After the exclusive configuration fence, each mutation rescans references. A
+new reference outside the locked set ends an explicitly unwritten attempt;
+there is at most one fresh host-first transaction with the same prepared values.
+A second expansion conflicts. No transaction acquires a new host in reverse
+order after the configuration fence, and no exception/deadlock or ambiguous
+write is replayed. Current revision, management/scope, exhaustion and exact
+impact checks precede business writes. An empty-set preview cannot authorize
+affecting a newly bound member host. Encryption stays outside transactions;
+identifier-only best-effort notices and existing batching/cache windows stay
+post-commit. Login, target, learned trust, atomic generations and explicit
+protected `needs_rebind` behavior are preserved.
+
+No schema, migration, App/Runner DTO or provider changes are introduced. Old
+API configuration-first/unlocked writers retain the original concurrency risks
+while serving; code merge or green CI does not prove that they have drained.
+This change does not authorize production drain, deployment or activation.
+Independent SSH-login revision semantics are unchanged. Writer inventory found
+login rotation host-before-login and Clerk cleanup host-before-login-before-config,
+but their bulk host updates/deletes are not explicitly UUID-ordered. This is
+an investigation boundary, not a demonstrated new cleanup defect or proof of
+global deadlock freedom. Tests use native PostgreSQL and genuine API/authorized
+Runner lifecycles, never SQL barriers or private business-row construction.
 
 ### Cloudflare Access impact-review presentation (#36988)
 
