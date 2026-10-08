@@ -3,67 +3,37 @@ import {
   type TestEmailOutboxStateActionBody,
   type TestEmailOutboxStateActionResponse,
   type TestEmailOutboxStateItem,
-  type TestOfficialAutomationResultEmailClaim,
 } from "@okouai/api-contracts/contracts/test-email-outbox-state";
 
-import { setupApp } from "../../../../__tests__/test-helpers";
+import { setupAppWithRoutes } from "../../../../__tests__/test-app";
 import { accept, type TestContext } from "../../../../__tests__/test-context";
 import { testEmailOutboxStateRoutes } from "../../test-email-outbox-state";
-
-interface SeedEmailOutboxItemOptions {
-  readonly template?: "data-export-ready" | "morning-brief-result";
-  readonly toAddress: string;
-  readonly subject: string;
-  readonly status: "pending" | "sending" | "failed";
-  readonly providerIdempotencyKey?: string;
-  readonly providerRequest?: {
-    readonly from: string;
-    readonly to: string;
-    readonly subject: string;
-    readonly html: string;
-    readonly text?: string;
-  };
-  readonly createdAt: Date;
-}
 
 interface FindEmailOutboxItemsOptions {
   readonly toAddress: string;
   readonly subject: string;
 }
 
-interface FindEmailOutboxSourceItemsOptions {
-  readonly sourceRunId: string;
-  readonly sourceWorkflowAutomationId: string;
+function stateClient(context: TestContext) {
+  return setupAppWithRoutes({
+    context,
+    routes: testEmailOutboxStateRoutes,
+  })(testEmailOutboxStateContract);
 }
 
-interface EmailOutboxSourceState {
-  readonly items: readonly TestEmailOutboxStateItem[];
-  readonly claim: TestOfficialAutomationResultEmailClaim | null;
-}
-
-export function createEmailOutboxStateApi(
+async function postAction(
   context: TestContext,
-  options: { readonly isolatePg?: boolean } = {},
-) {
-  async function postAction(
-    body: TestEmailOutboxStateActionBody,
-  ): Promise<TestEmailOutboxStateActionResponse> {
-    const app = await setupApp({
-      context,
-      routes: testEmailOutboxStateRoutes,
-      isolatePg: options.isolatePg,
-    });
-    const response = await accept(
-      app(testEmailOutboxStateContract).action({ body }),
-      [200],
-    );
-    return response.body;
-  }
+  body: TestEmailOutboxStateActionBody,
+): Promise<TestEmailOutboxStateActionResponse> {
+  const response = await accept(stateClient(context).action({ body }), [200]);
+  return response.body;
+}
 
+export function createEmailOutboxStateApi(context: TestContext) {
   async function findItems(
     options: FindEmailOutboxItemsOptions,
   ): Promise<readonly TestEmailOutboxStateItem[]> {
-    const response = await postAction({
+    const response = await postAction(context, {
       action: "find-item",
       to_address: options.toAddress,
       subject: options.subject,
@@ -75,70 +45,10 @@ export function createEmailOutboxStateApi(
   }
 
   return {
-    async seedItem(
-      options: SeedEmailOutboxItemOptions,
-    ): Promise<TestEmailOutboxStateItem> {
-      const response = await postAction({
-        action: "seed-item",
-        ...(options.template ? { template: options.template } : {}),
-        to_address: options.toAddress,
-        subject: options.subject,
-        status: options.status,
-        provider_idempotency_key: options.providerIdempotencyKey,
-        provider_request: options.providerRequest,
-        created_at: options.createdAt.toISOString(),
-      });
-      if (response.action !== "seed-item") {
-        throw new Error("Expected the email outbox seed response");
-      }
-      return response.item;
-    },
-
     findItems,
 
-    async findSourceState(
-      options: FindEmailOutboxSourceItemsOptions,
-    ): Promise<EmailOutboxSourceState> {
-      const response = await postAction({
-        action: "find-source",
-        source_run_id: options.sourceRunId,
-        source_workflow_automation_id: options.sourceWorkflowAutomationId,
-      });
-      if (response.action !== "find-source") {
-        throw new Error("Expected the email outbox source response");
-      }
-      return { items: response.items, claim: response.claim };
-    },
-
-    async findItem(
-      options: FindEmailOutboxItemsOptions,
-    ): Promise<TestEmailOutboxStateItem> {
-      const items = await findItems(options);
-      if (items.length !== 1) {
-        throw new Error(
-          `Expected one email outbox item, found ${items.length}`,
-        );
-      }
-      const item = items[0];
-      if (!item) {
-        throw new Error("Expected the uniquely matched email outbox item");
-      }
-      return item;
-    },
-
-    async readItem(itemId: string): Promise<TestEmailOutboxStateItem | null> {
-      const response = await postAction({
-        action: "read-items",
-        item_ids: [itemId],
-      });
-      if (response.action !== "read-items") {
-        throw new Error("Expected the email outbox read response");
-      }
-      return response.items[0] ?? null;
-    },
-
     async deleteItems(itemIds: readonly string[]): Promise<number> {
-      const response = await postAction({
+      const response = await postAction(context, {
         action: "delete-items",
         item_ids: [...itemIds],
       });

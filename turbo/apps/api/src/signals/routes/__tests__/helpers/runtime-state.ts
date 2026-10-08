@@ -332,52 +332,6 @@ export async function stageOfficialWorkflowAutomationFixture(
   });
 }
 
-export async function updateChatEventSnapshotHead(
-  context: TestContext,
-  threadId: string,
-  ...[objectKey, lastSeqId, lastEventId]: [
-    objectKey?: string,
-    lastSeqId?: number,
-    lastEventId?: string,
-  ]
-): Promise<void> {
-  await postAction(context, {
-    action: "update-chat-event-snapshot-head",
-    thread_id: threadId,
-    ...(objectKey === undefined ? {} : { object_key: objectKey }),
-    ...(lastSeqId === undefined ? {} : { last_seq_id: lastSeqId }),
-    ...(lastEventId === undefined ? {} : { last_event_id: lastEventId }),
-  });
-}
-
-export async function reserveChatEventSequenceGap(
-  context: TestContext,
-  threadId: string,
-  count: number,
-): Promise<void> {
-  await postAction(context, {
-    action: "reserve-chat-event-sequence-gap",
-    thread_id: threadId,
-    count,
-  });
-}
-
-export async function readChatEventSnapshotHead(
-  context: TestContext,
-  threadId: string,
-): Promise<
-  NonNullable<TestRuntimeStateActionResponse["chat_event_snapshot_head"]>
-> {
-  const response = await postAction(context, {
-    action: "read-chat-event-snapshot-head",
-    thread_id: threadId,
-  });
-  if (!response.chat_event_snapshot_head) {
-    throw new Error("readChatEventSnapshotHead missing snapshot head");
-  }
-  return response.chat_event_snapshot_head;
-}
-
 export async function clearRunApiStart(
   context: TestContext,
   runId: string,
@@ -406,42 +360,6 @@ export async function steerRunTimeBudgetFixture(
     throw new Error("steerRunTimeBudgetFixture missing run_time_budget");
   }
   return response.run_time_budget;
-}
-
-export async function seedPendingArtifactCatalogFile(
-  context: TestContext,
-  args: {
-    readonly userId: string;
-    readonly orgId: string;
-    readonly filename: string;
-    readonly url: string;
-  },
-): Promise<string> {
-  const response = await postAction(context, {
-    action: "seed-pending-artifact-catalog-file",
-    user_id: args.userId,
-    org_id: args.orgId,
-    filename: args.filename,
-    url: args.url,
-  });
-  if (!response.file_id) {
-    throw new Error("seedPendingArtifactCatalogFile missing file_id");
-  }
-  return response.file_id;
-}
-
-export async function setBrowserTabSnapshotAsPreviousApi(
-  context: TestContext,
-  args: {
-    readonly threadId: string;
-    readonly tabUrls: readonly string[];
-  },
-): Promise<void> {
-  await postAction(context, {
-    action: "set-browser-tab-snapshot-as-previous-api",
-    thread_id: args.threadId,
-    tab_urls: [...args.tabUrls],
-  });
 }
 
 export async function clearWorkflowAutomationEventConnectorAsPreviousApi(

@@ -79,22 +79,6 @@ export const testRuntimeStateActionBodySchema = z.discriminatedUnion("action", [
     pi_model_config: z.record(z.string(), z.unknown()),
   }),
   z.object({
-    action: z.literal("read-chat-event-snapshot-head"),
-    thread_id: z.uuid(),
-  }),
-  z.object({
-    action: z.literal("reserve-chat-event-sequence-gap"),
-    thread_id: z.uuid(),
-    count: z.int().positive(),
-  }),
-  z.object({
-    action: z.literal("update-chat-event-snapshot-head"),
-    thread_id: z.uuid(),
-    object_key: z.string().optional(),
-    last_seq_id: z.int().nonnegative().optional(),
-    last_event_id: z.uuid().optional(),
-  }),
-  z.object({
     action: z.literal("clear-run-api-start"),
     run_id: z.uuid(),
   }),
@@ -125,18 +109,6 @@ export const testRuntimeStateActionBodySchema = z.discriminatedUnion("action", [
       .string()
       .regex(/^[0-9a-f]{64}$/)
       .optional(),
-  }),
-  z.object({
-    action: z.literal("seed-pending-artifact-catalog-file"),
-    user_id: z.string(),
-    org_id: z.string(),
-    filename: z.string(),
-    url: z.url(),
-  }),
-  z.object({
-    action: z.literal("set-browser-tab-snapshot-as-previous-api"),
-    thread_id: z.uuid(),
-    tab_urls: z.array(z.string().max(8192)).max(50),
   }),
   z.object({
     action: z.literal("set-runner-job-context-profile-as-previous-api"),
@@ -187,18 +159,6 @@ export const testRuntimeStateActionResponseSchema = z.object({
     .object({
       run_id: z.uuid(),
       autonomy_budget: z.int().min(0).max(32),
-    })
-    .nullable()
-    .optional(),
-  chat_event_snapshot_head: z
-    .object({
-      archive_schema_version: z.int().positive(),
-      last_event_id: z.uuid(),
-      last_seq_id: z.int().nonnegative(),
-      terminal_event_id: z.uuid().nullable(),
-      terminal_seq_id: z.int().nonnegative().nullable(),
-      object_key: z.string(),
-      snapshot_count: z.int().positive(),
     })
     .nullable()
     .optional(),
@@ -277,7 +237,6 @@ export const testRuntimeStateActionResponseSchema = z.object({
     })
     .nullable()
     .optional(),
-  file_id: z.uuid().optional(),
 });
 
 export const testRuntimeStateContract = c.router({

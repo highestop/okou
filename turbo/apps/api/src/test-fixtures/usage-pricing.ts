@@ -1,18 +1,16 @@
 /**
- * In-process test fixture for the global `usage_pricing` table.
+ * Legacy in-process fixture for the operator-managed `usage_pricing` table.
  *
- * Usage pricing is operator-managed global configuration with no product API
- * (rows are written by ops tooling/migrations in production), so tests cannot
- * construct pricing state through any product endpoint. New route tests use
- * `createUsagePricingFixture` to own unique lookup providers. Raw mutation
- * helpers are reserved for rows whose provider is already proven UUID-, run-,
- * or fixture-owned; they must never target canonical operator identities.
+ * There is no user API for constructing these rows. A scenario that requires
+ * chosen pricing or an exact balance from this fixture cannot be preserved by
+ * replacing a test endpoint with this helper. Prefer independently public
+ * behavior; delete private-only scenarios as their callers are corrected.
  */
 import { randomUUID } from "node:crypto";
 
 import { createStore } from "ccstate";
 import { usagePricing } from "@okouai/db/schema/usage-pricing";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Client } from "pg";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
@@ -110,55 +108,6 @@ export async function createUsagePricingFixture({
   }
 
   return { resolution, cleanup };
-}
-
-export async function upsertUsagePricingRows(
-  rows: readonly UsagePricingRow[],
-): Promise<void> {
-  if (rows.length === 0) {
-    return;
-  }
-
-  await fixtureDb()
-    .insert(usagePricing)
-    .values([...rows])
-    .onConflictDoUpdate({
-      target: [usagePricing.kind, usagePricing.provider, usagePricing.category],
-      set: {
-        unitPrice: sql`excluded.unit_price`,
-        unitSize: sql`excluded.unit_size`,
-        updatedAt: sql`now()`,
-      },
-    });
-}
-
-export async function deleteUsagePricingRows(filter: {
-  readonly kind: string;
-  readonly provider: string;
-  readonly categories: readonly string[];
-}): Promise<readonly UsagePricingRow[]> {
-  if (filter.categories.length === 0) {
-    return [];
-  }
-
-  const db = fixtureDb();
-  const where = and(
-    eq(usagePricing.kind, filter.kind),
-    eq(usagePricing.provider, filter.provider),
-    inArray(usagePricing.category, [...filter.categories]),
-  );
-  const rows = await db
-    .select({
-      kind: usagePricing.kind,
-      provider: usagePricing.provider,
-      category: usagePricing.category,
-      unitPrice: usagePricing.unitPrice,
-      unitSize: usagePricing.unitSize,
-    })
-    .from(usagePricing)
-    .where(where);
-  await db.delete(usagePricing).where(where);
-  return rows;
 }
 
 /**

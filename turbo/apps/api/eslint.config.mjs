@@ -724,8 +724,6 @@ export default [
       // Storage publication guard, notification, and concurrency contracts.
       "src/signals/services/__tests__/pi-memory-phase2-job.service.test.ts",
       "src/signals/services/__tests__/pi-memory-phase2-selection.service.test.ts",
-      "src/signals/services/__tests__/pi-memory-phase2-usage.service.test.ts",
-      "src/signals/services/__tests__/pi-memory-phase2-worker.service.test.ts",
       // The post-commit presigned URL cache write is log-only. Every value an
       // endpoint can produce fits the cache columns, so only the command's
       // data parameter can carry a row PostgreSQL rejects.
@@ -897,8 +895,6 @@ export default [
       // matrices covered by these focused tests.
       "src/signals/services/__tests__/pi-memory-phase2-job.service.test.ts",
       "src/signals/services/__tests__/pi-memory-phase2-selection.service.test.ts",
-      "src/signals/services/__tests__/pi-memory-phase2-usage.service.test.ts",
-      "src/signals/services/__tests__/pi-memory-phase2-worker.service.test.ts",
       // The post-commit presigned URL cache write is log-only. Every value an
       // endpoint can produce fits the cache columns, so only the command's
       // data parameter can carry a row PostgreSQL rejects.

@@ -118,18 +118,48 @@ route integration test is supposed to cover.
 
 ## External Behavior Boundary
 
-API route tests should construct cases through API endpoints and verify results
-through API endpoints. The endpoint is the external contract. The database and
-service layer are internal implementation.
+API route tests must construct, drive, and observe a case through production
+interfaces available to the real caller. Follow the complete chain, including
+shared fixtures and nested helpers. A final public response does not make
+privately constructed state a public scenario. The database, internal services,
+and worker entry points are implementation details.
 
 Do not import DB schemas, write database rows, read database rows for assertions,
 or call services from API tests. Those tests couple to table shape, service
 boundaries, and internal state transitions instead of the behavior external
 callers rely on.
 
-If a case is not constructible through the production API surface, do not add an
-API route test that reaches into internals. Add the missing API surface first, or
-raise the gap during review.
+Delete a case when its decisive state or behavior requires a special test HTTP
+route, direct DB access, a test-only internal worker driver, fabricated legacy
+state, or an internal fault trigger. A production cron protected by
+`CRON_SECRET` is an operator interface, not a user-accessible API. Do not keep
+such a case by moving the driver into a fixture, exporting a private command,
+moving the case to a service suite, or adding a product endpoint solely for the
+test. Financial, security, clock, and historical-state labels do not waive this
+construction requirement.
+
+Preserve independently reachable behavior in mixed cases. Remove only the
+unsupported phase or parameter branch when the remaining lifecycle has its own
+meaningful public assertions. Count a parameterized declaration once and report
+removed branches separately. Record the exact case name, construction dependency,
+keep/rewrite/delete decision, coverage lost or retained, and orphaned support
+removed with it.
+
+Signed provider webhooks and authenticated Runner protocols can be production
+boundaries: use their actual authorization, payload, and lifecycle. Ordinary
+Clerk, S3, Resend, and Stripe mocks at the external provider boundary remain
+valid. Basic app setup and per-case database isolation do not fabricate a
+business scenario; fixture methods that seed business rows or force workers do.
+
+For example, the agent create/list example above uses
+[`agentsMainContract`](../../turbo/packages/api-contracts/src/contracts/agents.ts)
+and [`agentsRoutes`](../../turbo/apps/api/src/signals/routes/agents.ts) for both
+construction and observation. The `updates canonical connector slugs` case in
+[`agents.test.ts`](../../turbo/apps/api/src/signals/routes/__tests__/agents.test.ts)
+creates an agent, updates its connector grants through the authenticated API,
+and checks the returned grants. Neither path needs a private DB seed or a forced
+worker visit. Apply that same standard to usage reports, storage, and automation
+lifecycles instead of using a private driver to manufacture their prerequisites.
 
 For the full reasoning, see
 [Testing External Behavior](./testing-external-behavior.md).
@@ -142,21 +172,18 @@ file or worker can observe, overwrite, or depend on that state before
 all. A test must therefore be correct while other API tests execute
 concurrently, even if its cleanup has not happened yet.
 
-Give every test uniquely owned, explicitly addressable users, organizations,
-providers, storage identities, external entities, cache namespaces, and rows.
-In shared PostgreSQL, drive cron behavior through a scoped test route whose
-request names the owned IDs. Cases that exercise successful global writes use
-an isolated database as described below. Keep production behavior global; do
-not change its schema or filtering solely for test isolation. Do not isolate tests with a
-global lock, test ordering, worker serialization, broad clock partitions,
-snapshot/restore of shared rows, or residue-tolerant assertions.
+Give every test uniquely owned users, organizations, storage identities,
+external entities, and cache namespaces. Construct business state through the
+public lifecycle. ID scoping makes a private worker safer to run concurrently;
+it does not make that worker a public test boundary. Preserve production-global
+cron behavior without adding test-only selection or execution paths.
 
-Operator-managed usage-pricing identities and the fixed production staff
-organization are shared production data. Use `createUsagePricingFixture()` to
-map a logical canonical provider to a UUID-owned physical lookup row, and use a
-unique organization fixture for entitlement writes. Fixed production
-identities remain valid in read-only/hash/auth behavior. Raw pricing mutation
-helpers are only for providers already proven UUID-, run-, or fixture-owned.
+Do not fabricate chosen credit balances with DB-backed pricing, inspect private
+ledgers, or force settlement to make a public usage assertion pass. Use actual
+onboarding, signed billing events, and user-accessible billing responses where
+they construct the behavior; delete unsupported variations. Do not isolate tests
+with a global lock, test ordering, worker serialization, broad clock partitions,
+snapshot/restore of shared rows, or residue-tolerant assertions.
 
 Cache assertions own their key or namespace. Set and advance mocked time inside
 the test that exercises the TTL; never stagger tests with a module- or
@@ -178,38 +205,44 @@ parallel; cases within each file execute serially. Database choice belongs to
 the case, not to its filename, a Vitest project, tags, or metadata.
 
 Ordinary cases use native PostgreSQL. `setupApp({ context, routes })` stays
-synchronous and returns the contract-client factory. Cases that write global
-state, such as publishing a connector or official workflow catalog or changing
-canonical model pricing, initialize an isolated PGlite through `setupApp`:
+synchronous and returns the contract-client factory. When a public lifecycle
+needs case-owned database isolation, initialize an isolated PGlite through
+`setupApp`. Isolation changes the database lifetime, not the construction
+standard: business state still comes from the public API. For example, the
+agent create/list lifecycle above can use an isolated database like this:
 
 ```typescript
 const context = testContext();
 
-it("lists the current catalog", async () => {
-  const client = setupApp({ context, routes: connectorCatalogRoutes })(
-    connectorCatalogContract,
-  );
-  await accept(client.list({ headers: authHeaders() }), [200]);
-});
-
-it("publishes a replacement catalog", async () => {
+it("lists an agent created in this case", async () => {
+  context.mocks.clerk.session("user_isolated_agent", "org_isolated_agent");
+  context.mocks.s3.send.mockResolvedValue({});
   const app = await setupApp({
     context,
-    routes: cronConnectorCatalogRoutes,
+    routes: agentsRoutes,
     isolatePg: true,
   });
-  // Prepare the external catalog through context.mocks, then call its route.
-  const client = app(cronConnectorCatalogContract);
-  await accept(client.sync({ headers: cronHeaders() }), [200]);
+  const client = app(agentsMainContract);
+  const created = await accept(
+    client.create({
+      headers: authHeaders(),
+      body: { displayName: "Isolated Agent" },
+    }),
+    [201],
+  );
+  const listed = await accept(client.list({ headers: authHeaders() }), [200]);
+  expect(listed.body).toContainEqual(
+    expect.objectContaining({ agentId: created.body.agentId }),
+  );
 });
 ```
 
-Call and await isolated setup before any fixture, service, or request accesses
+Call and await isolated setup before any request or fixture accesses
 the database. Switching after shared PostgreSQL was accessed throws. Repeated
 isolated setup in one case reuses its database. Later ordinary `setupApp` calls
 inherit the case's database; omitting `isolatePg` never switches an isolated case
-back to shared PostgreSQL. The same binding covers direct fixture writes,
-services, HTTP requests, and their asynchronous background work.
+back to shared PostgreSQL. The same binding covers HTTP requests, the production
+services they call, and their asynchronous background work.
 
 Select isolation in the case's first real API request or API fixture operation,
 and use the returned client. Do not initialize it with an unused client, an
@@ -229,7 +262,9 @@ The fixture caches the unpacked files for subsequent cases. Each isolated case
 creates a fresh engine and memory filesystem with its own writable copies; cases do not
 repeat gzip/tar decoding, replay migrations, or reseed their database. Shared
 fixture installation uses `ifAbsent: true` and must never replace an existing
-catalog pointer.
+catalog pointer. This common application baseline is infrastructure; it does
+not authorize changing prices, catalog entries, or business rows to manufacture
+a case's decisive state.
 
 `src/__tests__/external-setup.ts` restores the fixed source and provider
 configuration and installs a fresh KMS mock before each case. The mock remains
@@ -237,13 +272,13 @@ available through finished callbacks and is cleared after the file. Shared
 PostgreSQL cases may read the seeded catalog but must not rotate, mutate, or
 delete its authority. Readers use a
 current pointer keyed only by schema version; changing the S3 bucket does not
-isolate that pointer. Catalog-generation and publisher cases therefore use
-`isolatePg: true` and publish their prerequisites into their own databases.
+isolate that pointer. Database isolation does not turn an operator-only catalog
+publisher into a user-accessible API.
 Users, organizations, accounts, credential storage, and encrypted values still
 use explicit case ownership.
 
-Catalog tests assert API-visible publication, discovery, account, and runner
-compatibility behavior. They do not assert SQL counts or text, attach engine
+Catalog tests follow the same public-construction rule when asserting discovery,
+account, and Runner compatibility behavior. They do not assert SQL counts or text, attach engine
 loggers, or corrupt database entries and constraints to test infrastructure
 failure recovery.
 
@@ -255,7 +290,7 @@ runs after those callbacks, aborts cleanup work, drains tracked detached and
 `waitUntil` work, and closes the isolated engine, including initialization that
 was still pending when a case failed. Background work must remain tracked and
 finish within its case; database selection does not identify untracked work
-that leaks into a later case. Services, routes, fixture writers, and SQL remain
+that leaks into a later case. Production services, routes, and SQL remain
 real; only the centralized database transport selects the current database.
 
 `api/no-test-database-binding` confines PGlite engine imports and construction to
@@ -265,22 +300,20 @@ decoding through PGlite's driver parsers, without rewriting query results or
 weakening schemas.
 
 PGlite has a single PostgreSQL session. Keep contracts that require the native
-PostgreSQL protocol, such as query cancellation, on native PostgreSQL. For cases
-that write global state, use PGlite and assert business-visible transaction
-outcomes: a prepared Run retains its captured catalog, while a later Run uses
-the newly published catalog. Do not preserve a multi-connection lock-state
+PostgreSQL protocol, such as query cancellation, on native PostgreSQL. Assert
+business-visible outcomes from a publicly constructed lifecycle. Do not preserve a multi-connection lock-state
 assertion just to retain the previous test mechanism. Never hold advisory locks,
 inspect `pg_locks`, or install transaction barriers or internal admission gates
 to construct an API scenario. Exercise requests and assert their responses and
 subsequent user-visible state; do not redirect outside queries into an active
 transaction or increase timeouts to make an incompatible test pass.
 
-Drive the real compaction worker through `compactUsageForTest(orgId, signal)` with an explicit
-test-owned organization. Never substitute a successful global sweep over
-another test's rows or add lock-waiter observations or pause points. X-resource
-retention tests use the resource-ID-scoped test route to construct historical rows and a
-request-scoped database clock; never invoke a successful production-global
-cleanup in a shared test database.
+Compaction and retention internals are not user construction paths. Do not force
+a sweep, backdate business rows, or assert exact internal batch counts to set up
+a public read. Keep public pin/reorder, message, storage, and usage behavior
+where it stands independently of those operations; remove private-only phases
+and their unused drivers. Endpoint-removal totals describe retired HTTP
+operations, not compliance with this construction and observation standard.
 
 ## Commands
 

@@ -1,22 +1,14 @@
-import { chatEventSequences } from "@okouai/db/schema/chat-event-sequence";
 import { command } from "ccstate";
 import {
   testRuntimeStateContract,
   type TestRuntimeStateActionBody,
 } from "@okouai/api-contracts/contracts/test-runtime-state";
-import { CURRENT_CHAT_EVENT_SCHEMA_VERSION } from "@okouai/api-contracts/contracts/chat-event-schema-version";
 import { agentRuns } from "@okouai/db/runtime/agent-run";
-import {
-  browserSessionTabSnapshots,
-  browserSessions,
-} from "@okouai/db/schema/browser-session";
-import { chatEventSnapshots } from "@okouai/db/schema/chat-event-snapshot";
 import { runnerJobQueue } from "@okouai/db/schema/runner-job-queue";
 import { runnerWssTickets } from "@okouai/db/schema/runner-wss-ticket";
-import { runUploadedFiles } from "@okouai/db/schema/run-uploaded-file";
 
 import { workflowAutomations } from "@okouai/db/schema/workflow";
-import { and, count, desc, eq, isNotNull, sql } from "drizzle-orm";
+import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
 import { AUTO_RUN_KEY_VENDOR } from "@okouai/core/auto-run-model";
 import { bodyResultOf } from "../context/request";
 import { request$ } from "../context/hono";
@@ -28,11 +20,9 @@ import {
   releaseBuiltInModelKeyFixture,
 } from "../services/built-in-model-key-fixture";
 import { catalogBuiltInModelRouteUpstream } from "../services/built-in-model-runtime-route.service";
-import { encryptPersistentSecretValue } from "../services/crypto.utils";
 import { writeRunMetadata$ } from "../services/agent-run-metadata-write.service";
 import { saveRunSummary$ } from "../services/run-summary.service";
 import { resolveRunnerWssTarget$ } from "../services/runner-wss-target.service";
-import { queueArtifactCatalogFile } from "../services/artifact-catalog.service";
 import { reconcileSocialKitDownloads$ } from "../services/socialkit-download.service";
 import { steerRunNearTimeBudgetForTest$ } from "../services/cron-steer-run-time-budget.service";
 import {
@@ -451,43 +441,6 @@ async function readRunLaunchSnapshotActionResponse(
   };
 }
 
-type PendingArtifactCatalogFileAction = Extract<
-  TestRuntimeStateActionBody,
-  { action: "seed-pending-artifact-catalog-file" }
->;
-
-async function seedPendingArtifactCatalogFile(
-  db: Db,
-  body: PendingArtifactCatalogFileAction,
-  signal: AbortSignal,
-) {
-  // Keep the ordinary write-to-queue handoff; skip only the immediate sync so
-  // the public list and scoped worker can exercise a durable recovery backlog.
-  const fileId = await db.transaction(async (tx) => {
-    const [file] = await tx
-      .insert(runUploadedFiles)
-      .values({
-        source: "web",
-        externalId: body.url,
-        userId: body.user_id,
-        orgId: body.org_id,
-        filename: body.filename,
-        contentType: "application/zip",
-        sizeBytes: 512,
-        url: body.url,
-        metadata: {},
-      })
-      .returning({ id: runUploadedFiles.id });
-    if (!file) {
-      throw new Error("Failed to seed a pending artifact catalog file");
-    }
-    await queueArtifactCatalogFile(tx, file.id, signal);
-    return file.id;
-  });
-  signal.throwIfAborted();
-  return { status: 200 as const, body: { ok: true as const, file_id: fileId } };
-}
-
 type PreviousApiRunnerJobContextProfileAction = Extract<
   TestRuntimeStateActionBody,
   { action: "set-runner-job-context-profile-as-previous-api" }
@@ -497,49 +450,6 @@ type PreviousApiWorkflowAutomationEventConnectorAction = Extract<
   TestRuntimeStateActionBody,
   { action: "clear-workflow-automation-event-connector-as-previous-api" }
 >;
-
-type PreviousApiBrowserTabSnapshotAction = Extract<
-  TestRuntimeStateActionBody,
-  { action: "set-browser-tab-snapshot-as-previous-api" }
->;
-
-async function setBrowserTabSnapshotAsPreviousApi(
-  db: Db,
-  body: PreviousApiBrowserTabSnapshotAction,
-  signal: AbortSignal,
-) {
-  // Older snapshots may already contain duplicate URLs. No current production
-  // API can reproduce that persisted input after capture-side deduplication.
-  const [browser] = await db
-    .select({ userId: browserSessions.userId })
-    .from(browserSessions)
-    .where(eq(browserSessions.chatThreadId, body.thread_id))
-    .limit(1);
-  signal.throwIfAborted();
-  if (!browser) {
-    throw new Error("Expected a managed browser for previous API tab snapshot");
-  }
-  const encryptedTabUrls = await encryptPersistentSecretValue(
-    JSON.stringify(body.tab_urls),
-    { userId: browser.userId },
-  );
-  signal.throwIfAborted();
-  await db
-    .insert(browserSessionTabSnapshots)
-    .values({
-      chatThreadId: body.thread_id,
-      encryptedTabUrls,
-    })
-    .onConflictDoUpdate({
-      target: browserSessionTabSnapshots.chatThreadId,
-      set: {
-        encryptedTabUrls,
-        updatedAt: nowDate(),
-      },
-    });
-  signal.throwIfAborted();
-  return { status: 200 as const, body: { ok: true as const } };
-}
 
 async function setRunnerJobContextProfileAsPreviousApi(
   db: Db,
@@ -588,157 +498,8 @@ async function clearWorkflowAutomationEventConnectorAsPreviousApi(
 }
 type CompatibilityFixtureAction =
   | AutonomyBudgetFixtureAction
-  | PendingArtifactCatalogFileAction
-  | PreviousApiBrowserTabSnapshotAction
   | PreviousApiRunnerJobContextProfileAction
   | PreviousApiWorkflowAutomationEventConnectorAction;
-
-type ChatEventFixtureAction = Extract<
-  TestRuntimeStateActionBody,
-  {
-    action:
-      | "reserve-chat-event-sequence-gap"
-      | "read-chat-event-snapshot-head"
-      | "update-chat-event-snapshot-head";
-  }
->;
-
-function isChatEventFixtureAction(
-  body: TestRuntimeStateActionBody,
-): body is ChatEventFixtureAction {
-  return (
-    body.action === "reserve-chat-event-sequence-gap" ||
-    body.action === "read-chat-event-snapshot-head" ||
-    body.action === "update-chat-event-snapshot-head"
-  );
-}
-
-async function updateChatEventSnapshotHeadFixture(
-  db: Db,
-  body: Extract<
-    TestRuntimeStateActionBody,
-    { action: "update-chat-event-snapshot-head" }
-  >,
-  signal: AbortSignal,
-) {
-  const [pointer] = await db
-    .select({ id: chatEventSnapshots.id })
-    .from(chatEventSnapshots)
-    .where(
-      and(
-        eq(chatEventSnapshots.chatThreadId, body.thread_id),
-        eq(
-          chatEventSnapshots.archiveSchemaVersion,
-          CURRENT_CHAT_EVENT_SCHEMA_VERSION,
-        ),
-      ),
-    )
-    .limit(1);
-  signal.throwIfAborted();
-  if (!pointer) {
-    throw new Error("update-chat-event-snapshot-head missing pointer");
-  }
-  const updated = await db
-    .update(chatEventSnapshots)
-    .set({
-      ...(body.last_seq_id === 0
-        ? { terminalEventId: null, terminalSeqId: 0 }
-        : {}),
-      ...(body.object_key === undefined ? {} : { objectKey: body.object_key }),
-      ...(body.last_seq_id === undefined
-        ? {}
-        : { lastSeqId: body.last_seq_id }),
-      ...(body.last_event_id === undefined
-        ? {}
-        : { lastEventId: body.last_event_id }),
-    })
-    .where(eq(chatEventSnapshots.id, pointer.id))
-    .returning({ id: chatEventSnapshots.id });
-  signal.throwIfAborted();
-  if (updated.length === 0) {
-    throw new Error("update-chat-event-snapshot-head missing pointer");
-  }
-  return { status: 200 as const, body: { ok: true as const } };
-}
-
-async function chatEventFixtureActionResponse(
-  db: Db,
-  body: ChatEventFixtureAction,
-  signal: AbortSignal,
-) {
-  if (body.action === "reserve-chat-event-sequence-gap") {
-    // Reserved positions can remain unused after intentional conflicts.
-    await db
-      .insert(chatEventSequences)
-      .values({ chatThreadId: body.thread_id, lastSeqId: body.count })
-      .onConflictDoUpdate({
-        target: chatEventSequences.chatThreadId,
-        set: {
-          lastSeqId: sql`${chatEventSequences.lastSeqId} + ${body.count}`,
-        },
-      });
-    signal.throwIfAborted();
-    return { status: 200 as const, body: { ok: true as const } };
-  }
-  if (body.action === "update-chat-event-snapshot-head") {
-    return await updateChatEventSnapshotHeadFixture(db, body, signal);
-  }
-  const [[head], [snapshotCount]] = await Promise.all([
-    db
-      .select({
-        archiveSchemaVersion: chatEventSnapshots.archiveSchemaVersion,
-        lastEventId: chatEventSnapshots.lastEventId,
-        lastSeqId: chatEventSnapshots.lastSeqId,
-        terminalEventId: chatEventSnapshots.terminalEventId,
-        terminalSeqId: chatEventSnapshots.terminalSeqId,
-        objectKey: chatEventSnapshots.objectKey,
-      })
-      .from(chatEventSnapshots)
-      .where(
-        and(
-          eq(chatEventSnapshots.chatThreadId, body.thread_id),
-          eq(
-            chatEventSnapshots.archiveSchemaVersion,
-            CURRENT_CHAT_EVENT_SCHEMA_VERSION,
-          ),
-        ),
-      )
-      .limit(1),
-    db
-      .select({ value: count() })
-      .from(chatEventSnapshots)
-      .where(
-        and(
-          eq(chatEventSnapshots.chatThreadId, body.thread_id),
-          eq(
-            chatEventSnapshots.archiveSchemaVersion,
-            CURRENT_CHAT_EVENT_SCHEMA_VERSION,
-          ),
-        ),
-      ),
-  ]);
-  signal.throwIfAborted();
-  if (!snapshotCount) {
-    throw new Error("read-chat-event-snapshot-head missing snapshot count");
-  }
-  return {
-    status: 200 as const,
-    body: {
-      ok: true as const,
-      chat_event_snapshot_head: head
-        ? {
-            archive_schema_version: head.archiveSchemaVersion,
-            last_event_id: head.lastEventId,
-            last_seq_id: head.lastSeqId,
-            terminal_event_id: head.terminalEventId,
-            terminal_seq_id: head.terminalSeqId,
-            object_key: head.objectKey,
-            snapshot_count: snapshotCount.value,
-          }
-        : null,
-    },
-  };
-}
 
 function isCompatibilityFixtureAction(
   body: TestRuntimeStateActionBody,
@@ -748,8 +509,6 @@ function isCompatibilityFixtureAction(
     "set-workflow-automation-autonomy-budget",
     "read-workflow-automation-autonomy-state",
     "read-latest-workflow-automation-run",
-    "seed-pending-artifact-catalog-file",
-    "set-browser-tab-snapshot-as-previous-api",
     "set-runner-job-context-profile-as-previous-api",
     "clear-workflow-automation-event-connector-as-previous-api",
   ].includes(body.action);
@@ -764,12 +523,6 @@ async function compatibilityFixtureActionResponse(
     return await autonomyBudgetFixtureActionResponse(db, body, signal);
   }
   switch (body.action) {
-    case "seed-pending-artifact-catalog-file": {
-      return await seedPendingArtifactCatalogFile(db, body, signal);
-    }
-    case "set-browser-tab-snapshot-as-previous-api": {
-      return await setBrowserTabSnapshotAsPreviousApi(db, body, signal);
-    }
     case "set-runner-job-context-profile-as-previous-api": {
       return await setRunnerJobContextProfileAsPreviousApi(db, body, signal);
     }
@@ -1013,9 +766,6 @@ const postRuntimeStateAction$ = command(
           ),
         },
       };
-    }
-    if (isChatEventFixtureAction(body)) {
-      return await chatEventFixtureActionResponse(db, body, signal);
     }
     if (isRunSummaryFixtureAction(body)) {
       return await set(runSummaryFixtureActionResponse$, body, signal);
