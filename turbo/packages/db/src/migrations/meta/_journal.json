@@ -1940,6 +1940,13 @@
       "when": 1791479786306,
       "tag": "1354_retire_oauth_contract_hash",
       "breakpoints": true
+    },
+    {
+      "idx": 1355,
+      "version": "7",
+      "when": 1791503441636,
+      "tag": "1355_expand_runtime_billing_identity",
+      "breakpoints": true
     }
   ]
 }

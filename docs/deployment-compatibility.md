@@ -282,6 +282,140 @@ legacy-marker prompts across both IDs and every queue position, and current
 queue recovery evidence. Keep strict claim validation and immutable history;
 this writer cutover does not complete the parent issue.
 
+## Model identity PR1: compatibility preparation (2026-10-08)
+
+This is **release 1 of three**, not the final model-identity cutover. The
+[final target](https://model-identity-target-state.okou.app) predates this
+three-release agreement. This model-identity rollout has no database switch,
+phase row, write-version marker, trigger, or activation mechanism.
+
+**Unchanged writers and public output.** PR1 still writes nullable Auto to
+thread/member preferences, `okou-1.0` to newly captured input/Run selections,
+and the legacy `okou-1.0` model billing provider. The public Auto catalog ID,
+replacement lineage, and nullable `/api/run-models` choice are unchanged.
+An incoming `auto` intent is translated to these predecessor-compatible
+representations; omitted PATCH/send fields retain their existing no-change
+semantics. A SQL NULL input selection remains an uncaptured decision, not a
+captured `auto`. Personal-subscription models/effort preferences and non-model
+billing identities remain separate. Auto offers neither explicit effort nor
+Fast. Existing selected/runtime/price rows are not backfilled or deleted.
+
+**Additive database and protocol preparation.** Migration
+`1355_expand_runtime_billing_identity` widens the provider fields in
+`usage_event`, `usage_event_hourly_rollup`, `usage_pricing`, and the route's
+`pricing_provider` to text without rewriting identities, rates, or settled
+amounts. The usage webhook now accepts providers through 255 characters,
+matching the immutable Run runtime-model column. Executable Auto presets must
+fit that column; no truncation is permitted. No selected NOT NULL or
+conditional lifecycle constraints are introduced. Migrations run before the
+API. Both predecessor and PR1 writes remain valid after this migration; the
+migration does not roll back with the API.
+
+**Prepared readers/runtime.** PR1 understands old nullable selections, captured
+`okou-1.0`, and future explicit `auto` decisions. Queued captured decisions keep
+their identity rather than being treated as personal-subscription model IDs.
+CLI and Web consume nullable or explicit Auto choices while retaining
+predecessor-compatible request intent; iOS normalizes saved Auto before new
+thread creation. Event replay/snapshot schemas retain nonempty model annotations
+and optional model fields on unrelated events.
+
+Pi accepts old catalog metadata, selected `auto`, and preset-only configuration
+on the existing platform-owned OpenRouter Auto capability class, for both
+Responses and the independently gated generation 5 Chat Completions dialect.
+This PR does not change or activate that transport switch.
+The captured runtime model, dialect, transport, credential bindings, and key
+remain authoritative; catalog selection metadata does not reroute a captured
+job. This does not declare arbitrary presets to have different capabilities or
+approved prices. A future route outside the existing Auto capability class
+requires its own verified captured capability contract before admission.
+Runner JSON transports and the addon already preserve string identities;
+fixtures exercise future preset payloads and verify usage reports keep the
+captured billing provider, not the upstream response's underlying model name.
+
+Future captured `auto` decisions use their captured runtime preset as the
+billing provider. Pricing preflight requires every billable token category,
+including long-context categories, under that provider. It does not borrow the
+legacy price key or a later organization preset. Existing captured legacy jobs
+keep legacy billing. Reporting recognizes preset-key observations before the
+selected-model display projection, so `auto` cannot merge different presets
+into one billing group, even after a Run is deleted. Legacy observations retain
+the existing reporting projection. No new price rows or speculative rates are
+included.
+
+**Supported combinations and rollout gates.**
+
+| Combination                                             | Support / requirement                                                                                                                                                                  |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Predecessor API/clients/Runner ↔ PR1 API/clients/Runner | Supported: normal output, writes and captured jobs remain in the predecessor format. New clients continue to send nullable Auto to the predecessor.                                    |
+| PR1 API ↔ planned PR2 API during rolling deployment     | PR1 reads future `auto` and runtime-key observations; PR2 must continue accepting PR1 nullable/legacy writers. There must be no pre-API selected NOT NULL migration.                   |
+| Old captured jobs ↔ PR1 runtime/API                     | Keep old config, legacy price rows, observation acceptance and reporting until queued/active executions and late reporting have drained.                                               |
+| PR2 new jobs ↔ pre-PR1 installed CLI/Pi                 | Not assumed supported. Capture upgraded CLI/runtime packages or gate admission against the installed package's actual capabilities; Runner promotion alone is not a drain proof.       |
+| PR2 public Auto catalog ↔ unupgraded clients            | Do not emit only a new Auto choice until the supported CLI/iOS/Web consumers are upgraded or an explicit compatible response window is retained. Web middleware does not gate CLI/iOS. |
+
+No first-release Web version floor points to an unavailable App build. A later
+Web floor can be raised only after the corresponding App build is live. Once
+PR2 emits new records/observations, API rollback below PR1 is unsupported unless
+a separately reviewed forward recovery restores compatibility; additive DDL
+alone cannot make the predecessor understand those records.
+
+**Follow-up releases.** PR2 switches _new writes by deployed code version_ to
+selected `auto` and captured-runtime billing. Before doing so, verify
+provider-specific authoritative rates for every enabled preset and every
+billable category, client/runtime availability, immutable runtime/key/account
+capture, and the PR1/PR2 mixed-writer matrix. Do not copy one preset's economics
+to another. PR1 is not authorization to execute this switch or deploy anything.
+PR3 follows proven old-writer, queued execution, installed rootfs/Pi, reporting
+and rollback drains: complete justified history/online/R2 snapshot conversion,
+apply selected NOT NULL and relevant conditional runtime constraints, and
+remove expired protocol/catalog/pricing compatibility. Historical billing
+conversion requires captured evidence, never today's org preset, and must not
+change settled amounts; unrecoverable identities remain auditable. These
+compatibility readers are tracked in [#38114](https://github.com/okou-ai/okou/issues/38114),
+not by elapsed time or a green Runner promotion.
+
+**Compatibility inventory / cleanup ownership.** #38114 owns the release-3
+removal gates for these concrete surfaces:
+
+- `core/auto-run-model.ts`: `isAutoSelectedModel`, `sameSelectedModel`,
+  `autoRunBillingProvider`; API `model-selection.service.ts`:
+  `resolveModelSelectionPin$`, `resolveQueuedModelSelectionPinFromSnapshot`;
+  preference/send normalization and `session-compatibility.ts:modelFamily`.
+- Web `availableRunModels$`, `createModelCatalog`,
+  `create-chat-thread.ts:createModelSelection,createModelSelectionForSend`,
+  default selection, picker and historical/upcoming Run notices; CLI catalog,
+  model/chat-model and automation display helpers; iOS
+  `resolveThreadModelSelection`.
+- Pi `model.ts:capturedAutoCatalogIdentity`; API catalog capability lookup,
+  captured built-in runtime routes and `pi-sandbox-config.ts`.
+- API `built-in-route-pricing.ts:builtInRouteForContext`; DB
+  `model-usage-reporting.ts:modelUsageDisplayProviderSql`, with legacy price
+  rows retained until old executions and late observations drain.
+
+**Native session evidence and future trigger.** A read-only MaskDB census of
+current retained production tables, bounded by
+`created_at < 2026-10-08T09:52:40.625254Z`, found no selected `auto` in Runs,
+threads or member preferences. It found 3,566 legacy Auto Runs and 922 session
+references to completed legacy Pi conversations with nonempty native-history
+hashes. Reads were paginated and repeated, not one transaction snapshot; archived
+history, R2 readability, user activity and current thread binding were not
+verified. This is not evidence of an already occurring production reset.
+
+After PR2 writes `auto`, a still-serving or supported rollback PR1 can read that
+captured input or session and compare it with `okou-1.0`. Completed Run identity
+is used for continuity; Runner drain does not remove these retained references.
+`modelFamily` therefore treats only the two selected Auto aliases as the same
+existing family, retaining harness/family/null incompatibility checks. Deferring
+that reader change to PR2 would require proving PR1 is absent from serving and
+rollback, contrary to the agreed overlap. Mixed-record deployed/R2 resume remains
+a PR2 verification gate, not a claim that source checks prove blob restoration.
+
+**Public request contract.** Nullable Auto and `auto` are accepted selection
+intents and normalize to legacy writes in PR1. The internal `okou-1.0` capture
+ID remains readable history/captured metadata, not a public selectable request
+ID; preference updates, thread selection and normal sends reject that explicit
+public selection. Merely echoing an existing stored preference for an unrelated
+media change retains the existing no-new-admission path.
+
 ## SEO partial SERP results (issue #36799)
 
 `POST /api/seo/serp` returns HTTP 200 for DataForSEO task status `40106`
