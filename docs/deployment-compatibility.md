@@ -5257,6 +5257,21 @@ skipped, so the old client simply stops purging. Its saved
 are not migrated. A new App against an older API makes no such calls. Rollback
 is safe; an older API resumes serving the routes with the same signing key.
 
+## Sandbox-hosted artifact covers (#36205)
+
+Hosted deployment requests may include a separately uploaded private preview
+when the default-off `artifactPreviews` switch is enabled. The same switch gates
+CLI capture, generation guidance and server prepare/complete admission.
+When disabled, capture is a silent no-op and supplied previews are ignored;
+hosting continues normally. Prepare/complete use `previewSkipped: true` to
+acknowledge an ignored cover, including disabling between those requests.
+Published covers remain readable after disabling the switch.
+Deploy and drain API readers before the new CLI/generation instructions; a
+mixed completion fleet must not ignore the preview requirement. Old requests
+retain backend screenshots until the separately planned retirement. The
+manifest's optional preview metadata and existing file/catalog image reference
+need no database migration. See [the publishing, storage and rollout contract](sandbox-artifact-previews.md).
+
 ## Artifact and hosted-site link layouts (2026-09-25)
 
 The retired VM0 brand survives only as the read-only _legacy link layout_
