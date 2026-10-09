@@ -12,10 +12,8 @@ import { pageSignal$ } from "../../../../../signals/page-signal.ts";
 import { detach, Reason } from "../../../../../signals/utils.ts";
 import { BuildInfoBlock } from "../build-info-block.tsx";
 import { OpenrouterPresetSettings } from "../openrouter-preset-settings.tsx";
-import { ConnectionDiagnosticsBlock } from "../connection-diagnostics-block.tsx";
 import { IndexedDbDiagnosticsBlock } from "../indexeddb-diagnostics-block.tsx";
 import { WelcomeThreadCard } from "../welcome-thread-card.tsx";
-import { WorkerConnectionDiagnosticsBlock } from "../worker-connection-diagnostics-block.tsx";
 
 const CAPTURE_RUN_COUNT = 3;
 
@@ -83,8 +81,6 @@ export function DebugSection() {
       <BuildInfoBlock />
       <OpenrouterPresetSettings />
       <WelcomeThreadCard />
-      <ConnectionDiagnosticsBlock />
-      <WorkerConnectionDiagnosticsBlock />
       <IndexedDbDiagnosticsBlock />
       <CaptureNetworkBodiesBlock />
     </div>
