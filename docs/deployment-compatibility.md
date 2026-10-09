@@ -1,5 +1,31 @@
 # Deployment Compatibility
 
+## CI build and test source (2026-10-09)
+
+Ordinary PR previews build and test the event's captured merge commit
+(`github.sha`), not the isolated PR head or a merge ref resolved later. API,
+public CLI, App, Runner, and CLI E2E lifecycle sources use that same revision.
+API seed/deploy `CLI_PKG_URL` and public CLI publication concurrency identify
+that source's commit-addressed archive. Archive/ready-marker schemas, integrity
+checks, publication order, release skips, and PR namespace ownership do not
+change. A new merge commit can require a new public CLI artifact even when the
+PR head is unchanged; Runner content-based caches remain reusable.
+
+Build source is not Actions producer/run identity: Runner `PRODUCER_HEAD_SHA`
+and consumer `LOOKUP_SHA` retain the PR head for provenance and API run lookup.
+GitHub deployment-record attribution is unchanged and is not proof of the
+exact build source. The shared Vercel action and Release Please workflow are
+unchanged; this repair only aligns ordinary preview build/test sources and
+CLI artifact addresses.
+
+No API/Runner wire format, persisted data, runtime protocol, or artifact
+migration is required. New previews publish and capture merge-addressed CLI
+URLs; already captured contexts retain their existing URLs, and their archives
+must stay available. Rolling the workflows back restores previous source
+selection without rewriting historical deployment records or deleting captured
+artifacts. Production artifact selection, deployment records, and
+serving-promotion behavior remain unchanged.
+
 ## Free memory preset routing (2026-10-09)
 
 New Stage 1 extraction and Phase 2 consolidation use the platform OpenRouter key
